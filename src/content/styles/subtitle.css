@@ -1,0 +1,53 @@
+/* ═══════════════════════════════════════════════
+   subtitle.css — YouTube 自定义字幕样式
+   Shadow DOM 中隔离
+   ═══════════════════════════════════════════════ */
+
+:host {
+  all: initial;
+  display: block;
+  position: absolute;
+  bottom: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  max-width: 800px;
+  pointer-events: none;
+  z-index: 1000;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    Roboto, "Noto Sans", sans-serif;
+  transition: opacity 0.2s ease;
+}
+
+.cue-container {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.cue-container.visible {
+  opacity: 1;
+}
+
+.cue-original {
+  font-size: clamp(14px, 2.5vmin, 22px);
+  font-weight: 500;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.cue-translated {
+  font-size: clamp(13px, 2.2vmin, 20px);
+  font-weight: 400;
+  color: #e0e0e0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  line-height: 1.5;
+}
+
+/* Font size variants */
+.size-small .cue-original { font-size: clamp(12px, 2vmin, 18px); }
+.size-small .cue-translated { font-size: clamp(11px, 1.8vmin, 16px); }
+.size-large .cue-original { font-size: clamp(18px, 3.5vmin, 30px); }
+.size-large .cue-translated { font-size: clamp(16px, 3vmin, 26px); }
