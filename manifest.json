@@ -51,7 +51,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["src/i18n/*.json"],
+      "resources": ["src/i18n/*.json", "src/content/styles/*.css"],
       "matches": ["<all_urls>"]
     }
   ]
