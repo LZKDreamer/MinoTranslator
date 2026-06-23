@@ -3,7 +3,7 @@
    消息路由 & 翻译服务调度
    ═══════════════════════════════════════════════ */
 
-importScripts('storage.js', 'translator.js');
+importScripts('/src/background/storage.js', '/src/background/translator.js');
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const handler = messageHandlers[request.type];
