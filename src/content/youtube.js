@@ -31,9 +31,16 @@
     // 监听 YouTube 页面导航（SPA 模式）
     let currentVideoId = null;
 
+    function isShortsPage() {
+      return window.location.pathname.startsWith('/shorts/');
+    }
+
     function checkForVideo() {
       const videoEl = document.querySelector('video');
-      const newId = new URLSearchParams(window.location.search).get('v');
+      const searchParams = new URLSearchParams(window.location.search);
+      const newId = isShortsPage()
+        ? window.location.pathname.split('/').pop()
+        : searchParams.get('v');
 
       if (newId && newId !== currentVideoId) {
         currentVideoId = newId;
@@ -46,20 +53,22 @@
 
       // 获取设置
       const settings = await sendMessage({ type: 'GET_SETTINGS' });
+      const isShorts = isShortsPage();
 
-      // 获取字幕
+      // 获取字幕（Shorts 复用 extractFromPlayerResponse，无需额外改动）
       const subtitleData = await fetchSubtitles(videoId);
 
       // 翻译字幕
       const translatedCues = await translateCues(subtitleData.cues, settings);
 
-      // 启动渲染
+      // 启动渲染（传递 isShorts 标记供渲染器适配竖屏布局）
       renderer.start(videoEl, {
         cues: translatedCues,
         mode: settings.subtitleMode || 'bilingual',
         fontSize: settings.fontSize || 'medium',
         position: settings.subPosition || 'below',
         bgOpacity: settings.bgOpacity || 0.6,
+        isShorts,
       });
     }
 
