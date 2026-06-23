@@ -41,9 +41,9 @@
   const MODEL_PRESETS = {
     'agnes-ai': {
       name: 'Agnes AI',
-      apiUrl: 'https://api.agnes-ai.com/api/v1',
-      modelId: 'agnes-20-flash',
-      modelOptions: ['agnes-20-flash'],
+      apiUrl: 'https://apihub.agnes-ai.com/v1',
+      modelId: 'agnes-2.0-flash',
+      modelOptions: ['agnes-2.0-flash', 'agnes-1.5-flash'],
     },
     openai: {
       name: 'OpenAI',
@@ -91,9 +91,9 @@
     models: {
       'agnes-ai': {
         name: 'Agnes AI',
-        apiUrl: 'https://api.agnes-ai.com/api/v1',
+        apiUrl: 'https://apihub.agnes-ai.com/v1',
         apiKey: '',
-        modelId: 'agnes-20-flash',
+        modelId: 'agnes-2.0-flash',
         enabled: true,
       },
     },

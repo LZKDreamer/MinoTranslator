@@ -17,9 +17,9 @@ const StorageManager = (() => {
     models: {
       'agnes-ai': {
         name: 'Agnes AI',
-        apiUrl: 'https://api.agnes-ai.com/api/v1',
+        apiUrl: 'https://apihub.agnes-ai.com/v1',
         apiKey: '',
-        modelId: 'agnes-20-flash',
+        modelId: 'agnes-2.0-flash',
         enabled: true,
       },
     },
