@@ -88,6 +88,18 @@
   async function handleSelection() {
     if (!isEnabled) return;
 
+    // 检查网络状态
+    if (!navigator.onLine) {
+      const sel = window.getSelection();
+      const txt = sel.toString().trim();
+      if (txt) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        showPopup(txt, '❌ Network offline', rect.left + rect.width / 2, rect.top);
+      }
+      return;
+    }
+
     const selection = window.getSelection();
     const text = selection.toString().trim();
 

@@ -19,18 +19,20 @@ const messageHandlers = {
   // 翻译单段文本（带 1 次失败重试）
   async TRANSLATE_TEXT(request) {
     const { text, modelKey } = request;
-    try {
-      const result = await Translator.translate(text, modelKey);
-      return { result };
-    } catch (firstErr) {
-      // Retry once on failure
+    const MAX_RETRIES = 1;
+    let lastError;
+    for (let i = 0; i <= MAX_RETRIES; i++) {
       try {
         const result = await Translator.translate(text, modelKey);
         return { result };
-      } catch (secondErr) {
-        throw new Error(`Translation failed after retry: ${secondErr.message}`);
+      } catch (err) {
+        lastError = err;
+        if (i < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
     }
+    return { error: lastError.message };
   },
 
   // 批量翻译

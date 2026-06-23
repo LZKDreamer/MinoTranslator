@@ -8,6 +8,21 @@
 
   // 等待页面加载完成后初始化
   function init() {
+    // 检查网络状态
+    if (!navigator.onLine) {
+      showSubtitlesOfflineNotice();
+      return;
+    }
+
+    window.addEventListener('online', () => {
+      checkForVideo();
+    });
+
+    function showSubtitlesOfflineNotice() {
+      // 显示离线提示（使用渲染层短消息）
+      console.log('Offline: subtitle translation unavailable');
+    }
+
     // 注入字幕渲染层
     const renderer = new SubtitleRenderer();
     renderer.mount();
