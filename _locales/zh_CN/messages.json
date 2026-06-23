@@ -1,0 +1,8 @@
+{
+  "translating": { "message": "翻译中..." },
+  "translateError": { "message": "翻译失败" },
+  "noSubtitles": { "message": "此视频没有可用字幕" },
+  "offlineNotice": { "message": "网络已断开，翻译不可用" },
+  "noApiKey": { "message": "请先在设置中配置 API Key" },
+  "embeddedNotSupported": { "message": "嵌入式视频暂不支持字幕翻译" }
+}

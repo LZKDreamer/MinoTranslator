@@ -112,7 +112,7 @@
     const y = rect.top;
 
     // 显示加载状态
-    showPopup(text, 'Translating...', x, y);
+    showPopup(text, chrome.i18n.getMessage('translating'), x, y);
 
     try {
       const result = await sendMessage({
