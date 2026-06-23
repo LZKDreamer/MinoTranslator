@@ -25,7 +25,8 @@ const Translator = (() => {
 
     const models = await StorageManager.get('models');
     const targetLang = await StorageManager.get('targetLanguage');
-    const model = models[modelKey || 'agnes-ai'];
+    const resolvedKey = modelKey || 'agnes-ai';
+    const model = models[resolvedKey];
 
     if (!model || !model.enabled) {
       throw new Error('Model not configured or disabled');
@@ -35,7 +36,7 @@ const Translator = (() => {
     }
 
     // Check cache
-    const cacheKey = getCacheKey(text, targetLang, modelKey);
+    const cacheKey = getCacheKey(text, targetLang, resolvedKey);
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       return cached.result;
