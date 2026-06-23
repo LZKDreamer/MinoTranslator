@@ -1,0 +1,272 @@
+/* ═══════════════════════════════════════════════
+   Popup — YouTube 翻译插件
+   Design tokens & component styles
+   ═══════════════════════════════════════════════ */
+
+/* ── Reset ────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Design Tokens ────────────────────────── */
+:root {
+  --color-bg: oklch(100% 0 0);
+  --color-surface: oklch(97% 0.005 265);
+  --color-primary: oklch(48% 0.18 265);
+  --color-primary-hover: oklch(43% 0.18 265);
+  --color-primary-light: oklch(92% 0.04 265);
+  --color-ink: oklch(20% 0.01 265);
+  --color-muted: oklch(55% 0.02 260);
+  --color-border: oklch(90% 0.01 260);
+  --color-success: oklch(55% 0.18 145);
+  --color-toggle-off: oklch(86% 0 0);
+
+  --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    Roboto, "Noto Sans", sans-serif;
+  --font-body: 14px;
+  --font-small: 12px;
+  --font-label: 13px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-full: 999px;
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 0.15s;
+  --duration-normal: 0.2s;
+}
+
+/* ── Base ─────────────────────────────────── */
+html {
+  font-size: var(--font-body);
+  font-family: var(--font-stack);
+  color: var(--color-ink);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  width: 320px;
+  min-height: 280px;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Container ────────────────────────────── */
+.popup-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 12px 16px 8px;
+}
+
+/* ── Header ───────────────────────────────── */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.popup-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+/* ── Setting Row ──────────────────────────── */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.setting-label {
+  font-size: var(--font-body);
+  font-weight: 450;
+  color: var(--color-ink);
+  line-height: 1.4;
+}
+
+/* ── Separator ────────────────────────────── */
+.separator {
+  height: 1px;
+  background: var(--color-border);
+  margin: 2px 0;
+}
+
+/* ── Segmented Control ────────────────────── */
+.segmented-control {
+  display: flex;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented-option {
+  flex: 1;
+  position: relative;
+  text-align: center;
+}
+
+.segmented-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.segmented-option span {
+  display: block;
+  padding: 5px 8px;
+  font-size: var(--font-small);
+  font-weight: 500;
+  color: var(--color-muted);
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.segmented-option input:checked + span {
+  color: var(--color-ink);
+  background: var(--color-bg);
+  box-shadow: 0 1px 2px oklch(0% 0 0 / 0.06);
+}
+
+.segmented-option:hover span {
+  color: var(--color-ink);
+}
+
+/* ── Toggle Switch ────────────────────────── */
+.toggle-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.toggle-track {
+  width: 36px;
+  height: 20px;
+  background: var(--color-toggle-off);
+  border-radius: var(--radius-full);
+  position: relative;
+  transition: background var(--duration-normal) var(--ease-standard);
+  cursor: pointer;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-bg);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px oklch(0% 0 0 / 0.15);
+  transition: transform var(--duration-normal) var(--ease-standard);
+}
+
+.toggle-input:checked + .toggle-track {
+  background: var(--color-primary);
+}
+
+.toggle-input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+}
+
+/* Focus visible for keyboard nav */
+.toggle-input:focus-visible + .toggle-track {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── Select / Dropdown ────────────────────── */
+.select-wrapper {
+  position: relative;
+  min-width: 120px;
+}
+
+.select-wrapper select {
+  width: 100%;
+  padding: 5px 28px 5px 10px;
+  font-size: var(--font-small);
+  font-family: var(--font-stack);
+  font-weight: 500;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.select-wrapper select:hover {
+  border-color: var(--color-muted);
+}
+
+.select-wrapper select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.select-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
+/* ── Settings Link ────────────────────────── */
+.settings-link {
+  display: block;
+  text-align: center;
+  padding: 10px 0 4px;
+  font-size: var(--font-small);
+  font-weight: 500;
+  color: var(--color-muted);
+  text-decoration: none;
+  border-top: 1px solid var(--color-border);
+  margin-top: 4px;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.settings-link:hover {
+  color: var(--color-primary);
+}
+
+.settings-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

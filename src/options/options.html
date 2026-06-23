@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="options.title">翻译插件 - 设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="options-container">
+    <!-- Header -->
+    <header class="options-header">
+      <h1 class="options-title" data-i18n="options.title">翻译插件 - 设置</h1>
+      <p class="options-desc" data-i18n="options.description">配置翻译模型、界面语言与字幕显示</p>
+    </header>
+
+    <!-- ─── Section 1: Model Configuration ─── -->
+    <section class="section" id="section-models">
+      <h2 class="section-title" data-i18n="options.modelSection">翻译模型</h2>
+
+      <div id="modelList" class="model-list">
+        <!-- Rendered by JS -->
+      </div>
+
+      <button id="addModelBtn" class="btn btn-ghost btn-full" data-i18n="options.addModel">
+        + 添加模型
+      </button>
+    </section>
+
+    <!-- ─── Section 2: UI Language ─── -->
+    <section class="section" id="section-language">
+      <h2 class="section-title" data-i18n="options.langSection">界面语言</h2>
+
+      <div class="radio-group">
+        <label class="radio-row">
+          <input type="radio" name="uiLang" value="auto" checked />
+          <div class="radio-content">
+            <span class="radio-label" data-i18n="options.langAuto">自动检测</span>
+            <span class="radio-desc" data-i18n="options.langAutoDesc">跟随浏览器语言（中文 / English）</span>
+          </div>
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="uiLang" value="zh-CN" />
+          <div class="radio-content">
+            <span class="radio-label" data-i18n="options.langChinese">简体中文</span>
+          </div>
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="uiLang" value="en" />
+          <div class="radio-content">
+            <span class="radio-label" data-i18n="options.langEnglish">English</span>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <!-- ─── Section 3: Subtitle Settings ─── -->
+    <section class="section" id="section-subtitles">
+      <h2 class="section-title" data-i18n="options.subSection">字幕设置</h2>
+
+      <!-- Font Size -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.fontSize">字号</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Font size">
+          <label class="segmented-option" data-value="small">
+            <input type="radio" name="fontSize" value="small" />
+            <span data-i18n="options.fontSmall">小</span>
+          </label>
+          <label class="segmented-option" data-value="medium">
+            <input type="radio" name="fontSize" value="medium" checked />
+            <span data-i18n="options.fontMedium">中</span>
+          </label>
+          <label class="segmented-option" data-value="large">
+            <input type="radio" name="fontSize" value="large" />
+            <span data-i18n="options.fontLarge">大</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Subtitle Position -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.subPosition">译文位置</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Translation position">
+          <label class="segmented-option" data-value="below">
+            <input type="radio" name="subPosition" value="below" checked />
+            <span data-i18n="options.posBelow">原文下方</span>
+          </label>
+          <label class="segmented-option" data-value="above">
+            <input type="radio" name="subPosition" value="above" />
+            <span data-i18n="options.posAbove">原文上方</span>
+          </label>
+          <label class="segmented-option" data-value="replace">
+            <input type="radio" name="subPosition" value="replace" />
+            <span data-i18n="options.posReplace">替换原文</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Background Opacity -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.bgOpacity">背景透明度</span>
+        <div class="slider-row">
+          <input type="range" id="bgOpacity" min="0.2" max="0.9" step="0.1" value="0.6" />
+          <span id="bgOpacityValue" class="slider-value">0.6</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Section 4: Floating Translate ─── -->
+    <section class="section" id="section-floating">
+      <h2 class="section-title" data-i18n="options.floatSection">划词翻译</h2>
+
+      <!-- Enable Toggle -->
+      <label class="setting-row">
+        <span class="setting-label" data-i18n="options.floatingEnable">启用划词翻译</span>
+        <div class="toggle-wrapper">
+          <input type="checkbox" id="floatingEnable" class="toggle-input" checked />
+          <div class="toggle-track">
+            <div class="toggle-thumb"></div>
+          </div>
+        </div>
+      </label>
+
+      <!-- Display Position -->
+      <div class="setting-block" id="floatPositionBlock">
+        <span class="block-label" data-i18n="options.floatPosition">显示位置</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Floating translate position">
+          <label class="segmented-option" data-value="mouse">
+            <input type="radio" name="floatPosition" value="mouse" checked />
+            <span data-i18n="options.posMouse">跟随鼠标</span>
+          </label>
+          <label class="segmented-option" data-value="fixed">
+            <input type="radio" name="floatPosition" value="fixed" />
+            <span data-i18n="options.posFixed">固定右下角</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Section 5: About ─── -->
+    <section class="section section-about" id="section-about">
+      <h2 class="section-title" data-i18n="options.aboutSection">关于</h2>
+      <div class="about-info">
+        <span class="about-label" data-i18n="options.version">版本</span>
+        <span class="about-value" id="versionDisplay">1.0.0</span>
+      </div>
+    </section>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
