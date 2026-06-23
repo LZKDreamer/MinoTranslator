@@ -43,7 +43,7 @@
       name: 'Agnes AI',
       apiUrl: 'https://apihub.agnes-ai.com/v1',
       modelId: 'agnes-2.0-flash',
-      modelOptions: ['agnes-2.0-flash', 'agnes-1.5-flash'],
+      modelOptions: ['agnes-2.0-flash', 'agnes-1.5-flash', 'agnes-image-2.0-flash', 'agnes-image-2.1-flash', 'agnes-video-v2.0'],
     },
     openai: {
       name: 'OpenAI',
