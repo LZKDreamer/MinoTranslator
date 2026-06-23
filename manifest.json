@@ -11,7 +11,7 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://*.youtube.com/*",
-    "https://api.agnes-ai.com/*"
+    "https://apihub.agnes-ai.com/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js"
