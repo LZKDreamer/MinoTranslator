@@ -41,33 +41,39 @@
   const MODEL_PRESETS = {
     'agnes-ai': {
       name: 'Agnes AI',
-      apiUrl: 'https://api.agnes-ai.com/v1',
+      apiUrl: 'https://api.agnes-ai.com/api/v1',
       modelId: 'agnes-20-flash',
+      modelOptions: ['agnes-20-flash'],
     },
     openai: {
       name: 'OpenAI',
       apiUrl: 'https://api.openai.com/v1',
       modelId: 'gpt-4o-mini',
+      modelOptions: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
     },
     claude: {
       name: 'Claude',
       apiUrl: 'https://api.anthropic.com/v1',
       modelId: 'claude-3-haiku-20240307',
+      modelOptions: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
     },
     deepseek: {
       name: 'DeepSeek',
       apiUrl: 'https://api.deepseek.com/v1',
       modelId: 'deepseek-chat',
+      modelOptions: ['deepseek-chat', 'deepseek-reasoner'],
     },
     qwen: {
       name: 'Qwen',
       apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       modelId: 'qwen-turbo',
+      modelOptions: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-long'],
     },
     minimax: {
       name: 'Minimax',
       apiUrl: 'https://api.minimax.chat/v1',
       modelId: 'abab5.5s-chat',
+      modelOptions: ['abab5.5s-chat', 'abab6.5s-chat', 'abab6.5g-chat', 'abab6.5t-chat'],
     },
   };
 
@@ -85,7 +91,7 @@
     models: {
       'agnes-ai': {
         name: 'Agnes AI',
-        apiUrl: 'https://api.agnes-ai.com/v1',
+        apiUrl: 'https://api.agnes-ai.com/api/v1',
         apiKey: '',
         modelId: 'agnes-20-flash',
         enabled: true,
@@ -168,6 +174,23 @@
   /* ── Models CRUD ───────────────────────── */
   let addFormOpen = false;
 
+  function getModelOptions(key, currentId) {
+    // Check if this key matches a known preset
+    const preset = MODEL_PRESETS[key];
+    const options = preset?.modelOptions || [currentId || ''];
+    return options.map(id =>
+      `<option value="${id}" ${id === currentId ? 'selected' : ''}>${id}</option>`
+    ).join('');
+  }
+
+  function getModelOptionsHtml(presetKey) {
+    const preset = MODEL_PRESETS[presetKey];
+    if (!preset?.modelOptions) return '<option value="">输入模型 ID</option>';
+    return preset.modelOptions.map(id =>
+      `<option value="${id}">${id}</option>`
+    ).join('');
+  }
+
   function renderModels() {
     const keys = Object.keys(state.models);
     if (keys.length === 0) {
@@ -202,7 +225,9 @@
             </div>
             <div class="model-field">
               <span class="model-field-label" data-i18n="options.modelId">模型 ID</span>
-              <input type="text" class="model-input-id" data-key="${key}" value="${m.modelId}" />
+              <select class="model-input-id" data-key="${key}">
+                ${getModelOptions(key, m.modelId)}
+              </select>
             </div>
           </div>
           <div class="model-card-actions">
@@ -324,7 +349,9 @@
           </div>
           <div class="model-field">
             <span class="model-field-label">Model ID</span>
-            <input type="text" id="addModelId" placeholder="model-name" />
+            <select id="addModelId">
+              <option value="">选择模型 ID</option>
+            </select>
           </div>
         </div>
         <button id="confirmAddModel" class="btn btn-primary btn-full">Add Model</button>
@@ -341,7 +368,9 @@
         const preset = MODEL_PRESETS[key];
         document.getElementById('addModelName').value = preset.name;
         document.getElementById('addModelUrl').value = preset.apiUrl;
-        document.getElementById('addModelId').value = preset.modelId;
+        const $idSelect = document.getElementById('addModelId');
+        $idSelect.innerHTML = '<option value="">选择模型 ID</option>' + getModelOptionsHtml(key);
+        $idSelect.value = preset.modelId || '';
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
@@ -354,7 +383,7 @@
     const name = document.getElementById('addModelName').value.trim();
     const url = document.getElementById('addModelUrl').value.trim();
     const key = document.getElementById('addModelKey').value.trim();
-    const modelId = document.getElementById('addModelId').value.trim();
+    const modelId = document.getElementById('addModelId').value;
 
     if (!name || !url || !modelId) {
       showToast('❌ Please fill in name, API URL, and Model ID');
