@@ -8,15 +8,16 @@
 
   // 等待页面加载完成后初始化
   function init() {
+    // 注册在线恢复监听（必须在 return 之前，确保离线加载时也能注册）
+    window.addEventListener('online', () => {
+      checkForVideo();
+    });
+
     // 检查网络状态
     if (!navigator.onLine) {
       showSubtitlesOfflineNotice();
       return;
     }
-
-    window.addEventListener('online', () => {
-      checkForVideo();
-    });
 
     function showSubtitlesOfflineNotice() {
       // 显示离线提示（使用渲染层短消息）
