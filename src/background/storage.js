@@ -31,9 +31,22 @@ const StorageManager = (() => {
     if (cache) return cache;
     const result = await chrome.storage.sync.get(Object.keys(DEFAULTS));
     cache = { ...DEFAULTS, ...result };
-    // Merge models deeply
+    // Merge models deeply — preserve default fields in each entry
     if (result.models) {
-      cache.models = { ...DEFAULTS.models, ...result.models };
+      const merged = {};
+      // Start with all default models, deep merge any stored overrides
+      for (const key of Object.keys(DEFAULTS.models)) {
+        merged[key] = result.models[key]
+          ? { ...DEFAULTS.models[key], ...result.models[key] }
+          : { ...DEFAULTS.models[key] };
+      }
+      // Also include any stored models not in defaults (user-added)
+      for (const key of Object.keys(result.models)) {
+        if (!merged[key]) {
+          merged[key] = { ...result.models[key] };
+        }
+      }
+      cache.models = merged;
     }
     return cache;
   }
