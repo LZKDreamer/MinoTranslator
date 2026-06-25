@@ -1,5 +1,5 @@
 export const site = {
   name: "Mino Translator",
-  domain: "www.zaymino.com",
-  url: "https://www.zaymino.com"
+  domain: "translator.zaymino.com",
+  url: "https://translator.zaymino.com"
 } as const;
