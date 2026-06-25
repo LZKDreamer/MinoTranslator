@@ -3,55 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <div id="app" class="popup-container">
-    <!-- Header -->
-    <div class="popup-header">
-      <span class="popup-title" data-i18n="popup.title">翻译插件</span>
+    <header class="popup-header">
+      <div class="popup-brand">
+        <img class="popup-logo" src="../../icons/logo.svg" alt="Mino" width="20" height="20" />
+        <span class="popup-title" data-i18n="popup.title">Mino 翻译</span>
+      </div>
+      <button id="openSettings" class="icon-button" type="button" aria-label="设置" title="设置">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.63 1.7 1.7 0 0 0 10 2.07V2a2 2 0 0 1 4 0v.09A1.7 1.7 0 0 0 15 3.65a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.37 8a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </header>
+
+    <div id="configBanner" class="config-banner" hidden>
+      <span class="config-banner-text" data-i18n="popup.configKeyNeeded">请先配置 API Key 以使用翻译功能</span>
+      <button id="goToSettingsBtn" class="config-banner-btn" type="button" data-i18n="popup.goToSettings">去设置</button>
     </div>
 
-    <!-- Translation Toggle -->
-    <label class="setting-row">
-      <span class="setting-label" data-i18n="popup.translationToggle">翻译</span>
-      <div class="toggle-wrapper">
-        <input type="checkbox" id="translationToggle" class="toggle-input" checked />
-        <div class="toggle-track">
-          <div class="toggle-thumb"></div>
-        </div>
-      </div>
-    </label>
-
-    <!-- Separator -->
-    <div class="separator"></div>
-
-    <!-- Subtitle Mode -->
-    <div class="setting-group">
-      <span class="setting-label" data-i18n="popup.subtitleMode">字幕模式</span>
-      <div class="segmented-control" role="radiogroup" aria-label="Subtitle mode">
-        <label class="segmented-option" data-value="original">
-          <input type="radio" name="subtitleMode" value="original" />
-          <span data-i18n="popup.original">原文</span>
-        </label>
-        <label class="segmented-option" data-value="bilingual">
-          <input type="radio" name="subtitleMode" value="bilingual" checked />
-          <span data-i18n="popup.bilingual">双语</span>
-        </label>
-        <label class="segmented-option" data-value="translated">
-          <input type="radio" name="subtitleMode" value="translated" />
-          <span data-i18n="popup.translated">译文</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Target Language -->
-    <label class="setting-row">
+    <label class="target-row">
       <span class="setting-label" data-i18n="popup.targetLanguage">目标语言</span>
       <div class="select-wrapper">
         <select id="targetLanguage">
-          <option value="zh-CN" data-i18n="popup.chinese">简体中文</option>
-          <option value="en" data-i18n="popup.english">English</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁体中文</option>
+          <option value="en">English</option>
         </select>
         <svg class="select-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -59,25 +42,25 @@
       </div>
     </label>
 
-    <!-- Separator -->
-    <div class="separator"></div>
-
-    <!-- Floating Translate Toggle -->
-    <label class="setting-row">
-      <span class="setting-label" data-i18n="popup.floatingTranslate">划词翻译</span>
-      <div class="toggle-wrapper">
-        <input type="checkbox" id="floatingToggle" class="toggle-input" checked />
-        <div class="toggle-track">
-          <div class="toggle-thumb"></div>
-        </div>
-      </div>
-    </label>
-
-    <!-- Footer -->
-    <a href="#" id="openSettings" class="settings-link" data-i18n="popup.openSettings">
-      打开完整设置
-    </a>
+    <main id="videoList" class="video-list" aria-live="polite"></main>
   </div>
+
+  <template id="videoItemTemplate">
+    <article class="video-item">
+      <div class="thumb-wrap">
+        <svg class="progress-ring" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="progress-ring-track" cx="22" cy="22" r="20"></circle>
+          <circle class="progress-ring-value" cx="22" cy="22" r="20"></circle>
+        </svg>
+        <img class="video-thumb" alt="" />
+      </div>
+      <div class="video-meta">
+        <div class="video-title"></div>
+        <div class="video-status"></div>
+      </div>
+      <button class="video-action" type="button"></button>
+    </article>
+  </template>
 
   <script src="popup.js"></script>
 </body>

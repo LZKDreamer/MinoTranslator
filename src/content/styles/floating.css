@@ -78,3 +78,44 @@
   top: auto;
   left: auto;
 }
+
+/* ═══════════════════════════════════════════════
+   选择文本后出现的翻译图标
+   ═══════════════════════════════════════════════ */
+
+#yt-translate-logo {
+  position: fixed;
+  z-index: 2147483646;
+  width: 32px;
+  height: 32px;
+  background: oklch(100% 0 0);
+  border: 1px solid oklch(88% 0.008 260);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px oklch(0% 0 0 / 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  font-size: 16px;
+  color: oklch(45% 0.025 260);
+  user-select: none;
+  transform-origin: center;
+}
+
+#yt-translate-logo.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#yt-translate-logo:hover {
+  background: oklch(97% 0.008 260);
+  color: oklch(35% 0.03 260);
+  transform: scale(1.12);
+}
+
+#yt-translate-logo:active {
+  transform: scale(0.95);
+}

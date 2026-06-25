@@ -14,6 +14,7 @@ const StorageManager = (() => {
     bgOpacity: 0.6,
     floatingTranslateEnabled: true,
     floatPosition: 'mouse',
+    defaultModel: 'agnes-ai',
     models: {
       'agnes-ai': {
         name: 'Agnes AI',
@@ -46,7 +47,8 @@ const StorageManager = (() => {
           merged[key] = { ...result.models[key] };
         }
       }
-      cache.models = merged;
+      // 解密 apiKey 字段后再缓存
+      cache.models = await ApiKeyCrypto.decryptModels(merged);
     }
     return cache;
   }
@@ -57,10 +59,15 @@ const StorageManager = (() => {
   }
 
   async function set(partial) {
+    // 加密 models 中的 apiKey 字段后再存储
+    let dataToStore = partial;
+    if (partial.models && typeof partial.models === 'object') {
+      dataToStore = { ...partial, models: await ApiKeyCrypto.encryptModels(partial.models) };
+    }
     if (cache) {
       Object.assign(cache, partial);
     }
-    await chrome.storage.sync.set(partial);
+    await chrome.storage.sync.set(dataToStore);
     // Notify listeners
     listeners.forEach(fn => fn(partial));
   }

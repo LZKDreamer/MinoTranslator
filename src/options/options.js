@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   Options — YouTube 翻译插件设置页
+   Options — Mino Translator 设置页
    ═══════════════════════════════════════════════ */
 
 (function () {
@@ -43,51 +43,32 @@
       name: 'Agnes AI',
       apiUrl: 'https://apihub.agnes-ai.com/v1',
       modelId: 'agnes-2.0-flash',
-      modelOptions: ['agnes-2.0-flash', 'agnes-1.5-flash', 'agnes-image-2.0-flash', 'agnes-image-2.1-flash', 'agnes-video-v2.0'],
-    },
-    openai: {
-      name: 'OpenAI',
-      apiUrl: 'https://api.openai.com/v1',
-      modelId: 'gpt-4o-mini',
-      modelOptions: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-    },
-    claude: {
-      name: 'Claude',
-      apiUrl: 'https://api.anthropic.com/v1',
-      modelId: 'claude-3-haiku-20240307',
-      modelOptions: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+      modelOptions: ['agnes-2.0-flash', 'agnes-1.5-flash'],
     },
     deepseek: {
       name: 'DeepSeek',
-      apiUrl: 'https://api.deepseek.com/v1',
-      modelId: 'deepseek-chat',
-      modelOptions: ['deepseek-chat', 'deepseek-reasoner'],
-    },
-    qwen: {
-      name: 'Qwen',
-      apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      modelId: 'qwen-turbo',
-      modelOptions: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-long'],
-    },
-    minimax: {
-      name: 'Minimax',
-      apiUrl: 'https://api.minimax.chat/v1',
-      modelId: 'abab5.5s-chat',
-      modelOptions: ['abab5.5s-chat', 'abab6.5s-chat', 'abab6.5g-chat', 'abab6.5t-chat'],
+      apiUrl: 'https://api.deepseek.com',
+      modelId: 'deepseek-v4-flash',
+      modelOptions: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     },
   };
 
   /* ── Default State ────────────────────── */
+  const CONFIG_VERSION = 2; // bump when model presets change to trigger migration
   const DEFAULTS = {
     uiLanguage: 'auto',
     translationEnabled: true,
     subtitleMode: 'bilingual',
     targetLanguage: 'zh-CN',
     fontSize: 'medium',
-    subPosition: 'below',
+    subPosition: 'above',
     bgOpacity: 0.6,
+    originalTextColor: 50,
+    translatedTextColor: 50,
+    subBgColor: 0,
     floatingTranslateEnabled: true,
     floatPosition: 'mouse',
+    defaultModel: 'agnes-ai',
     models: {
       'agnes-ai': {
         name: 'Agnes AI',
@@ -96,33 +77,115 @@
         modelId: 'agnes-2.0-flash',
         enabled: true,
       },
+      deepseek: {
+        name: 'DeepSeek',
+        apiUrl: 'https://api.deepseek.com',
+        apiKey: '',
+        modelId: 'deepseek-v4-flash',
+        enabled: true,
+      },
     },
   };
 
   let state = {};
 
   /* ── DOM Refs ──────────────────────────── */
-  const $modelList = document.getElementById('modelList');
-  const $addBtn = document.getElementById('addModelBtn');
+  const $modelSelector = document.getElementById('modelSelector');
+  const $modelName = document.getElementById('modelName');
+  const $modelApiUrl = document.getElementById('modelApiUrl');
+  const $modelApiKey = document.getElementById('modelApiKey');
+  const $modelModelId = document.getElementById('modelModelId');
+  const $testModelBtn = document.getElementById('testModelBtn');
+  const $deleteModelBtn = document.getElementById('deleteModelBtn');
+  const $addModelBtn = document.getElementById('addModelBtn');
+  const $targetLanguage = document.getElementById('targetLanguage');
   const $bgOpacity = document.getElementById('bgOpacity');
   const $bgOpacityValue = document.getElementById('bgOpacityValue');
+  const $originalTextColor = document.getElementById('originalTextColor');
+  const $translatedTextColor = document.getElementById('translatedTextColor');
+  const $subBgColor = document.getElementById('subBgColor');
   const $floatingEnable = document.getElementById('floatingEnable');
   const $floatPositionBlock = document.getElementById('floatPositionBlock');
   const $versionDisplay = document.getElementById('versionDisplay');
 
   /* ── Storage ───────────────────────────── */
+  /**
+   * Migrate stored model configs to match current DEFAULTS for known presets.
+   * Preserves user-entered API keys while updating fields that changed across versions.
+   * Removes presets that are no longer supported.
+   */
+  function migrateModelConfigs(storedModels) {
+    if (!storedModels || Object.keys(storedModels).length === 0) return storedModels;
+
+    const migrated = { ...storedModels };
+    let changed = false;
+
+    // Known old/broken values → correct values map per preset key
+    const MIGRATIONS = {
+      'agnes-ai': {
+        // Old URL → new URL
+        apiUrl: { from: ['https://api.agnes-ai.com/api/v1'], to: DEFAULTS.models['agnes-ai'].apiUrl },
+        // Old model IDs → new model ID
+        modelId: { from: ['agnes-20-flash'], to: DEFAULTS.models['agnes-ai'].modelId },
+      },
+    };
+
+    // Presets removed in this version — delete them from stored configs
+    const REMOVED_PRESET_KEYS = ['openai', 'claude', 'qwen', 'minimax'];
+
+    for (const key of REMOVED_PRESET_KEYS) {
+      if (migrated[key]) {
+        delete migrated[key];
+        changed = true;
+      }
+    }
+
+    for (const [presetKey, fieldMigrations] of Object.entries(MIGRATIONS)) {
+      const model = migrated[presetKey];
+      if (!model) continue;
+
+      for (const [field, migration] of Object.entries(fieldMigrations)) {
+        if (migration.from.includes(model[field])) {
+          model[field] = migration.to;
+          changed = true;
+        }
+      }
+    }
+
+    return changed ? migrated : storedModels;
+  }
+
   async function loadState() {
     try {
-      // Need to get models separately since it's nested
       const result = await chrome.storage.sync.get([
         'uiLanguage', 'translationEnabled', 'subtitleMode',
         'targetLanguage', 'fontSize', 'subPosition', 'bgOpacity',
-        'floatingTranslateEnabled', 'floatPosition', 'models',
+        'originalTextColor', 'translatedTextColor', 'subBgColor',
+        'floatingTranslateEnabled', 'floatPosition', 'defaultModel', 'models',
+        '_modelConfigVersion',
       ]);
+
+      // 解密 apiKey 字段（兼容旧格式）
+      if (result.models) {
+        result.models = await ApiKeyCrypto.decryptModels(result.models);
+      }
+
+      // Migrate outdated model configs
+      const storedVersion = result._modelConfigVersion || 0;
+      let models = result.models;
+      if (storedVersion < CONFIG_VERSION) {
+        models = migrateModelConfigs(result.models);
+        // Persist migrated configs + new version（加密后存）
+        await chrome.storage.sync.set({
+          models: await ApiKeyCrypto.encryptModels(models),
+          _modelConfigVersion: CONFIG_VERSION,
+        });
+      }
+
       state = {
         ...DEFAULTS,
         ...result,
-        models: { ...DEFAULTS.models, ...(result.models || {}) },
+        models: { ...DEFAULTS.models, ...(models || {}) },
       };
     } catch {
       state = { ...DEFAULTS, models: { ...DEFAULTS.models } };
@@ -133,13 +196,20 @@
   async function saveState(partial) {
     Object.assign(state, partial);
     try {
-      await chrome.storage.sync.set(partial);
+      // 如果包含 models，加密 apiKey 后再存储
+      let dataToStore = partial;
+      if (partial.models && typeof partial.models === 'object') {
+        dataToStore = { ...partial, models: await ApiKeyCrypto.encryptModels(partial.models) };
+      }
+      await chrome.storage.sync.set(dataToStore);
     } catch (e) {
       console.warn('Failed to save state:', e);
     }
   }
 
   function applyState() {
+    $targetLanguage.value = state.targetLanguage;
+
     // UI Language
     const langRadios = document.querySelectorAll('input[name="uiLang"]');
     langRadios.forEach(r => {
@@ -147,6 +217,11 @@
     });
 
     // Subtitle settings
+    const subtitleModeRadios = document.querySelectorAll('input[name="subtitleMode"]');
+    subtitleModeRadios.forEach(r => {
+      r.checked = r.value === state.subtitleMode;
+    });
+
     const fontSizeRadios = document.querySelectorAll('input[name="fontSize"]');
     fontSizeRadios.forEach(r => {
       r.checked = r.value === state.fontSize;
@@ -160,6 +235,11 @@
     $bgOpacity.value = state.bgOpacity;
     $bgOpacityValue.textContent = state.bgOpacity;
 
+    // Color settings
+    applyColorSlider($originalTextColor, state.originalTextColor);
+    applyColorSlider($translatedTextColor, state.translatedTextColor);
+    applyColorSlider($subBgColor, state.subBgColor);
+
     // Floating translate
     $floatingEnable.checked = state.floatingTranslateEnabled;
 
@@ -168,125 +248,160 @@
       r.checked = r.value === state.floatPosition;
     });
 
-    renderModels();
+    renderModelSelector();
   }
 
-  /* ── Models CRUD ───────────────────────── */
-  let addFormOpen = false;
-
-  function getModelOptions(key, currentId) {
-    // Check if this key matches a known preset
-    const preset = MODEL_PRESETS[key];
-    const options = preset?.modelOptions || [currentId || ''];
-    return options.map(id =>
-      `<option value="${id}" ${id === currentId ? 'selected' : ''}>${id}</option>`
-    ).join('');
+  /**
+   * 将滑块位置 (0-360) 映射为颜色
+   * 0→黑, 50→白, 50-360→彩虹全色
+   */
+  function posToColor(pos) {
+    if (pos <= 50) {
+      const l = Math.round((pos / 50) * 100);
+      return `hsl(0, 0%, ${l}%)`;
+    }
+    const hue = Math.round(((pos - 50) / 310) * 360);
+    return `hsl(${hue}, 100%, 50%)`;
   }
 
-  function getModelOptionsHtml(presetKey) {
-    const preset = MODEL_PRESETS[presetKey];
-    if (!preset?.modelOptions) return '<option value="">输入模型 ID</option>';
-    return preset.modelOptions.map(id =>
-      `<option value="${id}">${id}</option>`
-    ).join('');
+  /**
+   * 设置颜色滑块的值和 thumb 颜色
+   */
+  function applyColorSlider($slider, pos) {
+    $slider.value = pos;
+    $slider.style.setProperty('--thumb-color', posToColor(pos));
   }
 
-  function renderModels() {
+  /* ── Model Selector ─────────────────────── */
+  let _currentModelKey = null;
+
+  function renderModelSelector() {
     const keys = Object.keys(state.models);
-    if (keys.length === 0) {
-      $modelList.innerHTML = `<div class="empty-state" data-i18n="options.noModels">暂无模型配置</div>`;
-      applyI18nFromState();
+    const current = state.defaultModel || keys[0];
+
+    // Build dropdown
+    $modelSelector.innerHTML = keys.map(key => {
+      const m = state.models[key];
+      const isPreset = !!MODEL_PRESETS[key];
+      const label = isPreset ? m.name : `${m.name} (自定义)`;
+      return `<option value="${key}" ${key === current ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+
+    loadModelFields(current);
+  }
+
+  function getCurrentModelKey() {
+    return $modelSelector.value || state.defaultModel;
+  }
+
+  function loadModelFields(key) {
+    if (!key || !state.models[key]) return;
+    _currentModelKey = key;
+    const m = state.models[key];
+    $modelName.value = m.name || '';
+    $modelApiUrl.value = m.apiUrl || '';
+    $modelApiKey.value = m.apiKey || '';
+    $modelModelId.value = m.modelId || '';
+
+    // Name field: editable for custom, read-only for built-in presets
+    const isPreset = !!MODEL_PRESETS[key];
+    $modelName.disabled = isPreset;
+
+    // Delete button only for custom models
+    $deleteModelBtn.style.display = isPreset ? 'none' : '';
+
+    // Update test button state
+    updateTestBtnState();
+
+    // Update default model
+    if (state.defaultModel !== key) {
+      state.defaultModel = key;
+      saveState({ defaultModel: key });
+    }
+  }
+
+  function saveCurrentModelFields() {
+    const key = getCurrentModelKey();
+    if (!key || !state.models[key]) return;
+    const m = state.models[key];
+    m.name = $modelName.value;
+    m.apiUrl = $modelApiUrl.value;
+    m.apiKey = $modelApiKey.value;
+    m.modelId = $modelModelId.value;
+    saveState({ models: state.models });
+  }
+
+  function updateTestBtnState() {
+    const allFilled = $modelName.value.trim()
+      && $modelApiUrl.value.trim()
+      && $modelApiKey.value.trim()
+      && $modelModelId.value.trim();
+    $testModelBtn.disabled = !allFilled;
+  }
+
+  // ── Events ─────────────────────────────
+  
+  // Dropdown change: switch model
+  $modelSelector.addEventListener('change', () => {
+    const key = $modelSelector.value;
+    if (key) loadModelFields(key);
+  });
+
+  // Field changes: save automatically (on blur for text)
+  const onFieldChange = () => {
+    saveCurrentModelFields();
+    updateTestBtnState();
+    // Refresh dropdown label for name changes
+    const key = getCurrentModelKey();
+    const option = $modelSelector.querySelector(`option[value="${key}"]`);
+    if (option) {
+      const isPreset = !!MODEL_PRESETS[key];
+      option.textContent = isPreset ? $modelName.value : `${$modelName.value} (自定义)`;
+    }
+  };
+
+  $modelName.addEventListener('change', onFieldChange);
+  $modelApiUrl.addEventListener('change', onFieldChange);
+  $modelApiKey.addEventListener('change', onFieldChange);
+  $modelModelId.addEventListener('change', onFieldChange);
+
+  // Real-time button state as user types (without saving on every keystroke)
+  $modelName.addEventListener('input', updateTestBtnState);
+  $modelApiUrl.addEventListener('input', updateTestBtnState);
+  $modelApiKey.addEventListener('input', updateTestBtnState);
+  $modelModelId.addEventListener('input', updateTestBtnState);
+
+  // API Key show/hide toggle
+  document.getElementById('revealApiKey').addEventListener('click', () => {
+    const isPassword = $modelApiKey.type === 'password';
+    $modelApiKey.type = isPassword ? 'text' : 'password';
+    document.querySelectorAll('.reveal-icon .eye-open, .reveal-icon .eye-closed').forEach(el => {
+      el.style.display = el.style.display === 'none' ? '' : 'none';
+    });
+  });
+
+  // Test connection
+  $testModelBtn.addEventListener('click', async () => {
+    const key = getCurrentModelKey();
+    const m = state.models[key];
+    if (!m) return;
+
+    // Double-check all fields are filled
+    if (!m.name?.trim() || !m.apiUrl?.trim() || !m.apiKey?.trim() || !m.modelId?.trim()) {
+      showToast('❌ 请先填写完整的模型配置');
       return;
     }
 
-    $modelList.innerHTML = keys.map(key => {
-      const m = state.models[key];
-      const isDefault = key === 'agnes-ai';
-      return `
-        <div class="model-card" data-key="${key}">
-          <div class="model-card-header">
-            <span class="model-card-name">
-              ${m.name}
-              ${isDefault ? '<span class="model-default-badge" data-i18n="options.default">默认</span>' : ''}
-            </span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" class="toggle-input model-enable-toggle" data-key="${key}" ${m.enabled ? 'checked' : ''} />
-              <div class="toggle-track"><div class="toggle-thumb"></div></div>
-            </div>
-          </div>
-          <div class="model-card-fields">
-            <div class="model-field">
-              <span class="model-field-label" data-i18n="options.apiUrl">API 地址</span>
-              <input type="text" class="model-input-url" data-key="${key}" value="${m.apiUrl}" placeholder="https://api.example.com/v1" />
-            </div>
-            <div class="model-field">
-              <span class="model-field-label" data-i18n="options.apiKey">API Key</span>
-              <input type="password" class="model-input-key" data-key="${key}" value="${m.apiKey || ''}" placeholder="sk-..." />
-            </div>
-            <div class="model-field">
-              <span class="model-field-label" data-i18n="options.modelId">模型 ID</span>
-              <select class="model-input-id" data-key="${key}">
-                ${getModelOptions(key, m.modelId)}
-              </select>
-            </div>
-          </div>
-          <div class="model-card-actions">
-            <button class="btn btn-sm btn-primary test-btn" data-key="${key}" data-i18n="options.testBtn">测试连接</button>
-            ${!isDefault ? `<button class="btn btn-sm btn-danger delete-btn" data-key="${key}" data-i18n="options.deleteBtn">删除</button>` : ''}
-          </div>
-        </div>
-      `;
-    });
+    // Save fields first so latest values are used
+    saveCurrentModelFields();
 
-    applyI18nFromState();
-
-    // Bind model events
-    document.querySelectorAll('.model-enable-toggle').forEach(el => {
-      el.addEventListener('change', onModelToggle);
-    });
-    document.querySelectorAll('.model-input-url').forEach(el => {
-      el.addEventListener('change', onModelFieldChange);
-    });
-    document.querySelectorAll('.model-input-key').forEach(el => {
-      el.addEventListener('change', onModelFieldChange);
-    });
-    document.querySelectorAll('.model-input-id').forEach(el => {
-      el.addEventListener('change', onModelFieldChange);
-    });
-    document.querySelectorAll('.test-btn').forEach(el => {
-      el.addEventListener('click', onTestConnection);
-    });
-    document.querySelectorAll('.delete-btn').forEach(el => {
-      el.addEventListener('click', onDeleteModel);
-    });
-  }
-
-  function onModelToggle(e) {
-    const key = e.target.dataset.key;
-    state.models[key].enabled = e.target.checked;
-    saveState({ models: state.models });
-  }
-
-  function onModelFieldChange(e) {
-    const key = e.target.dataset.key;
-    const cls = e.target.className;
-    const val = e.target.value;
-    if (cls.includes('model-input-url')) state.models[key].apiUrl = val;
-    else if (cls.includes('model-input-key')) state.models[key].apiKey = val;
-    else if (cls.includes('model-input-id')) state.models[key].modelId = val;
-    saveState({ models: state.models });
-  }
-
-  async function onTestConnection(e) {
-    const key = e.target.dataset.key;
-    const btn = e.target;
-    const m = state.models[key];
-
+    const btn = $testModelBtn;
     btn.disabled = true;
     btn.textContent = 'Testing...';
 
     try {
-      const resp = await fetch(`${m.apiUrl.replace(/\/+$/, '')}/chat/completions`, {
+      const apiUrl = m.apiUrl.replace(/\/+$/, '');
+      const resp = await fetch(`${apiUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -302,8 +417,13 @@
       if (resp.ok) {
         showToast('✅ Connection successful');
       } else {
-        const err = await resp.text().catch(() => 'Unknown error');
-        showToast(`❌ ${resp.status}: ${err.slice(0, 60)}`);
+        const errText = await resp.text().catch(() => 'Unknown error');
+        let errMsg = errText;
+        try {
+          const parsed = JSON.parse(errText);
+          errMsg = parsed.error?.message || parsed.message || errText;
+        } catch { /* not JSON, use raw */ }
+        showToast(`❌ ${resp.status}: ${errMsg}`);
       }
     } catch (err) {
       showToast(`❌ Network error: ${err.message}`);
@@ -312,110 +432,50 @@
       btn.textContent = 'Test Connection';
       applyI18nFromState();
     }
-  }
+  });
 
-  function onDeleteModel(e) {
-    const key = e.target.dataset.key;
+  // Delete custom model
+  $deleteModelBtn.addEventListener('click', () => {
+    const key = getCurrentModelKey();
+    if (!key || !state.models[key]) return;
+    if (MODEL_PRESETS[key]) return; // cannot delete built-in models
+
     delete state.models[key];
-    renderModels();
-    saveState({ models: state.models });
-  }
 
-  /* ── Add Model ─────────────────────────── */
-  let addFormHtml = null;
-
-  function renderAddForm() {
-    if (!addFormOpen) return;
-
-    const presets = Object.entries(MODEL_PRESETS).map(([key, p]) =>
-      `<button class="preset-btn" data-preset="${key}">${p.name}</button>`
-    ).join('');
-
-    const html = `
-      <div id="addForm" class="model-add-form open">
-        <div class="preset-selector">${presets}</div>
-        <div class="model-card-fields">
-          <div class="model-field">
-            <span class="model-field-label">Preset (fill from above)</span>
-            <input type="text" id="addModelName" placeholder="Custom name" />
-          </div>
-          <div class="model-field">
-            <span class="model-field-label">API URL</span>
-            <input type="text" id="addModelUrl" placeholder="https://api.example.com/v1" />
-          </div>
-          <div class="model-field">
-            <span class="model-field-label">API Key</span>
-            <input type="password" id="addModelKey" placeholder="sk-..." />
-          </div>
-          <div class="model-field">
-            <span class="model-field-label">Model ID</span>
-            <select id="addModelId">
-              <option value="">选择模型 ID</option>
-            </select>
-          </div>
-        </div>
-        <button id="confirmAddModel" class="btn btn-primary btn-full">Add Model</button>
-      </div>
-    `;
-
-    // Insert after model list
-    $modelList.insertAdjacentHTML('afterend', html);
-
-    // Preset buttons
-    document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.preset;
-        const preset = MODEL_PRESETS[key];
-        document.getElementById('addModelName').value = preset.name;
-        document.getElementById('addModelUrl').value = preset.apiUrl;
-        const $idSelect = document.getElementById('addModelId');
-        $idSelect.innerHTML = '<option value="">选择模型 ID</option>' + getModelOptionsHtml(key);
-        $idSelect.value = preset.modelId || '';
-        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
-
-    document.getElementById('confirmAddModel').addEventListener('click', confirmAddModel);
-  }
-
-  function confirmAddModel() {
-    const name = document.getElementById('addModelName').value.trim();
-    const url = document.getElementById('addModelUrl').value.trim();
-    const key = document.getElementById('addModelKey').value.trim();
-    const modelId = document.getElementById('addModelId').value;
-
-    if (!name || !url || !modelId) {
-      showToast('❌ Please fill in name, API URL, and Model ID');
-      return;
+    // If we deleted the default, pick first available
+    if (state.defaultModel === key) {
+      const remaining = Object.keys(state.models);
+      state.defaultModel = remaining.length > 0 ? remaining[0] : '';
     }
 
-    // Generate a unique key
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const uniqueKey = slug || `model-${Date.now()}`;
+    saveState({ models: state.models, defaultModel: state.defaultModel });
+    renderModelSelector();
+  });
 
-    state.models[uniqueKey] = {
+  // Add custom model
+  $addModelBtn.addEventListener('click', () => {
+    // Find a unique name/key
+    const existing = new Set(Object.keys(state.models));
+    let n = 1;
+    let name, key;
+    do {
+      name = `自定义模型 ${n}`;
+      key = `custom-${n}`;
+      n++;
+    } while (existing.has(key));
+
+    state.models[key] = {
       name,
-      apiUrl: url,
-      apiKey: key,
-      modelId,
+      apiUrl: 'https://',
+      apiKey: '',
+      modelId: '',
       enabled: true,
     };
-
-    saveState({ models: state.models });
-    addFormOpen = false;
-    document.getElementById('addForm')?.remove();
-    renderModels();
-  }
-
-  $addBtn.addEventListener('click', () => {
-    if (addFormOpen) {
-      document.getElementById('addForm')?.remove();
-      addFormOpen = false;
-      return;
-    }
-    addFormOpen = true;
-    renderAddForm();
+    state.defaultModel = key;
+    saveState({ models: state.models, defaultModel: key });
+    renderModelSelector();
+    $modelName.focus();
+    $modelName.select();
   });
 
   /* ── Toast ─────────────────────────────── */
@@ -435,8 +495,24 @@
   /* ── Other Event Bindings ──────────────── */
   // UI Language
   document.querySelectorAll('input[name="uiLang"]').forEach(el => {
+    el.addEventListener('change', async () => {
+      if (el.checked) {
+        await saveState({ uiLanguage: el.value });
+        // 重新加载消息并应用 i18n
+        const lang = el.value === 'auto' ? detectUILang() : el.value;
+        _messages = await loadMessages(lang);
+        applyI18n(_messages);
+      }
+    });
+  });
+
+  $targetLanguage.addEventListener('change', () => {
+    saveState({ targetLanguage: $targetLanguage.value });
+  });
+
+  document.querySelectorAll('input[name="subtitleMode"]').forEach(el => {
     el.addEventListener('change', () => {
-      if (el.checked) saveState({ uiLanguage: el.value });
+      if (el.checked) saveState({ subtitleMode: el.value });
     });
   });
 
@@ -459,6 +535,27 @@
     const val = parseFloat($bgOpacity.value);
     $bgOpacityValue.textContent = val;
     saveState({ bgOpacity: val });
+  });
+
+  // Original Text Color
+  $originalTextColor.addEventListener('input', () => {
+    const pos = parseInt($originalTextColor.value);
+    $originalTextColor.style.setProperty('--thumb-color', posToColor(pos));
+    saveState({ originalTextColor: pos });
+  });
+
+  // Translated Text Color
+  $translatedTextColor.addEventListener('input', () => {
+    const pos = parseInt($translatedTextColor.value);
+    $translatedTextColor.style.setProperty('--thumb-color', posToColor(pos));
+    saveState({ translatedTextColor: pos });
+  });
+
+  // Subtitle Background Color
+  $subBgColor.addEventListener('input', () => {
+    const pos = parseInt($subBgColor.value);
+    $subBgColor.style.setProperty('--thumb-color', posToColor(pos));
+    saveState({ subBgColor: pos });
   });
 
   // Floating Translate

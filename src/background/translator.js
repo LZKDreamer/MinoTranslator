@@ -3,8 +3,7 @@
    统一使用 OpenAI-compatible /chat/completions 格式
    ═══════════════════════════════════════════════ */
 
-importScripts('./storage.js');
-
+// translate-prompt.js is loaded via service-worker.js importScripts before this file
 const Translator = (() => {
   // 翻译缓存：Map<`text:targetLang:modelKey`, { result, timestamp }>
   const cache = new Map();
@@ -42,9 +41,11 @@ const Translator = (() => {
       return cached.result;
     }
 
-    // Build system prompt based on target language
-    const langName = targetLang === 'zh-CN' ? '简体中文' : 'English';
-    const systemPrompt = `You are a translator. Translate the following text to ${langName}. Preserve the original meaning and tone. Output ONLY the translation, no explanations.`;
+    // Build prompt using shared module
+    const prompt = TranslatePrompt.buildFloatingPrompt({
+      text: text,
+      targetLanguage: targetLang,
+    });
 
     const response = await fetch(`${model.apiUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
@@ -55,11 +56,11 @@ const Translator = (() => {
       body: JSON.stringify({
         model: model.modelId,
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user },
         ],
         max_tokens: 2048,
-        temperature: 0.1,
+        temperature: 0.3,
       }),
     });
 

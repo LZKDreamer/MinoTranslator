@@ -1,0 +1,25 @@
+# ─── 安全 ──────────────────────────────────────────
+.env.local
+.env.*.local
+
+# ─── 本地开发工具 ────────────────────────────────
+.codegraph/
+.reasonix/
+.superpowers/
+reasonix.toml
+AGENTS.md.bak
+
+# ─── 运行时产物 ──────────────────────────────────
+debug.log
+debug-server.js
+
+# ─── 外部备份 / 临时文件 ─────────────────────────
+doc.json
+doc2.json
+doc_es.json
+*.srt
+*.bak
+
+# ─── Node.js ─────────────────────────────────────
+node_modules/
+package-lock.json

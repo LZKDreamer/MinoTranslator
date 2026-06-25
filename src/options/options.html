@@ -3,14 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title data-i18n="options.title">翻译插件 - 设置</title>
+  <title data-i18n="options.title">Mino 翻译 - 设置</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <div class="options-container">
     <!-- Header -->
     <header class="options-header">
-      <h1 class="options-title" data-i18n="options.title">翻译插件 - 设置</h1>
+      <div class="options-brand">
+        <img class="options-logo" src="../../icons/logo.svg" alt="Mino" width="28" height="28" />
+        <h1 class="options-title" data-i18n="options.title">Mino 翻译 - 设置</h1>
+      </div>
       <p class="options-desc" data-i18n="options.description">配置翻译模型、界面语言与字幕显示</p>
     </header>
 
@@ -18,13 +24,59 @@
     <section class="section" id="section-models">
       <h2 class="section-title" data-i18n="options.modelSection">翻译模型</h2>
 
-      <div id="modelList" class="model-list">
-        <!-- Rendered by JS -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.selectModel">选择模型</span>
+        <select id="modelSelector" class="setting-select"></select>
+      </div>
+
+      <div id="modelFields" class="model-fields-panel">
+        <div class="model-field">
+          <span class="model-field-label">模型名称</span>
+          <input type="text" id="modelName" class="model-input" placeholder="Agnes AI" />
+        </div>
+        <div class="model-field">
+          <span class="model-field-label" data-i18n="options.apiUrl">API 地址</span>
+          <input type="text" id="modelApiUrl" class="model-input" placeholder="https://api.example.com/v1" />
+        </div>
+        <div class="model-field">
+          <span class="model-field-label" data-i18n="options.apiKey">API Key</span>
+          <div class="input-reveal">
+            <input type="password" id="modelApiKey" class="model-input input-reveal-input" placeholder="sk-..." autocomplete="off" />
+            <button type="button" class="input-reveal-btn" id="revealApiKey" tabindex="-1" aria-label="Toggle visibility">
+              <svg class="reveal-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path class="eye-open" d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle class="eye-open" cx="12" cy="12" r="3"/>
+                <path class="eye-closed" d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" style="display:none"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="model-field">
+          <span class="model-field-label" data-i18n="options.modelId">模型 ID</span>
+          <input type="text" id="modelModelId" class="model-input" placeholder="model-id" />
+        </div>
+      </div>
+
+      <div class="model-actions">
+        <button id="testModelBtn" class="btn btn-primary btn-sm" data-i18n="options.testBtn">测试连接</button>
+        <button id="deleteModelBtn" class="btn btn-danger btn-sm" data-i18n="options.deleteBtn" style="display:none">删除</button>
       </div>
 
       <button id="addModelBtn" class="btn btn-ghost btn-full" data-i18n="options.addModel">
-        + 添加模型
+        + 添加自定义模型
       </button>
+    </section>
+
+    <section class="section" id="section-target-language">
+      <h2 class="section-title" data-i18n="options.targetLangSection">目标语言</h2>
+      <label class="setting-row">
+        <span class="setting-label" data-i18n="options.targetLanguage">目标语言</span>
+        <select id="targetLanguage" class="setting-select">
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁体中文</option>
+          <option value="en">English</option>
+        </select>
+      </label>
     </section>
 
     <!-- ─── Section 2: UI Language ─── -->
@@ -57,6 +109,24 @@
     <!-- ─── Section 3: Subtitle Settings ─── -->
     <section class="section" id="section-subtitles">
       <h2 class="section-title" data-i18n="options.subSection">字幕设置</h2>
+
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.subtitleMode">字幕模式</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Subtitle mode">
+          <label class="segmented-option" data-value="original">
+            <input type="radio" name="subtitleMode" value="original" />
+            <span data-i18n="options.original">原文</span>
+          </label>
+          <label class="segmented-option" data-value="bilingual">
+            <input type="radio" name="subtitleMode" value="bilingual" checked />
+            <span data-i18n="options.bilingual">双语</span>
+          </label>
+          <label class="segmented-option" data-value="translated">
+            <input type="radio" name="subtitleMode" value="translated" />
+            <span data-i18n="options.translated">译文</span>
+          </label>
+        </div>
+      </div>
 
       <!-- Font Size -->
       <div class="setting-block">
@@ -100,8 +170,32 @@
       <div class="setting-block">
         <span class="block-label" data-i18n="options.bgOpacity">背景透明度</span>
         <div class="slider-row">
-          <input type="range" id="bgOpacity" min="0.2" max="0.9" step="0.1" value="0.6" />
+          <input type="range" id="bgOpacity" min="0" max="1" step="0.05" value="0.6" />
           <span id="bgOpacityValue" class="slider-value">0.6</span>
+        </div>
+      </div>
+
+      <!-- Original Text Color -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.origColor">原文颜色</span>
+        <div class="slider-row color-slider-row">
+          <input type="range" id="originalTextColor" class="hue-slider" min="0" max="360" value="50" />
+        </div>
+      </div>
+
+      <!-- Translated Text Color -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.transColor">译文颜色</span>
+        <div class="slider-row color-slider-row">
+          <input type="range" id="translatedTextColor" class="hue-slider" min="0" max="360" value="50" />
+        </div>
+      </div>
+
+      <!-- Subtitle Background Color -->
+      <div class="setting-block">
+        <span class="block-label" data-i18n="options.bgColor">字幕背景色</span>
+        <div class="slider-row color-slider-row">
+          <input type="range" id="subBgColor" class="hue-slider" min="0" max="360" value="0" />
         </div>
       </div>
     </section>
@@ -147,6 +241,7 @@
     </section>
   </div>
 
+  <script src="/src/shared/crypto-utils.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

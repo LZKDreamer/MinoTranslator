@@ -4,5 +4,8 @@
   "noSubtitles": { "message": "No subtitles available for this video" },
   "offlineNotice": { "message": "Offline: translation unavailable" },
   "noApiKey": { "message": "Please configure API Key in settings" },
-  "embeddedNotSupported": { "message": "Embedded video subtitle translation is not supported" }
+  "embeddedNotSupported": { "message": "Embedded video subtitle translation is not supported" },
+  "networkOffline": { "message": "Network offline" },
+  "noTranslationResult": { "message": "No translation" },
+  "alreadyInTargetLang": { "message": "Already in target language, no translation needed" }
 }

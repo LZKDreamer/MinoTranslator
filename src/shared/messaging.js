@@ -21,3 +21,18 @@ window.sendMessage = function sendMessage(message) {
     });
   });
 };
+
+/**
+ * 调试日志：发送到 Service Worker 缓冲，可直接下载
+ * 使用 window.DEBUG 变量控制是否启用，默认 true
+ */
+window.debugLog = function debugLog(tag, ...args) {
+  if (window.DEBUG === false) return;
+  // 同时输出到 Console 便于实时查看
+  console.log(`[${tag}]`, ...args);
+  // 异步发送到 SW 缓冲（不等待，不阻塞）
+  chrome.runtime.sendMessage({
+    type: 'DEBUG_LOG',
+    payload: { tag, message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '), timestamp: Date.now() },
+  }).catch(() => {});
+};
