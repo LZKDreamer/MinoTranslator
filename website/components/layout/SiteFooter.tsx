@@ -1,0 +1,23 @@
+import {getTranslations} from "next-intl/server";
+import type {Locale} from "@/i18n/routing";
+
+type Props = {
+  locale: Locale;
+};
+
+export async function SiteFooter({locale}: Props) {
+  const t = await getTranslations({locale, namespace: "footer"});
+
+  return (
+    <footer className="footer">
+      <div className="container footer-inner">
+        <div className="brand">
+          <img src="/assets/icon128.png" alt="" />
+          <span>{locale === "zh-CN" ? "Mino 翻译" : "Mino Translator"}</span>
+        </div>
+        <p>{t("note")}</p>
+        <span>{t("domain")}</span>
+      </div>
+    </footer>
+  );
+}

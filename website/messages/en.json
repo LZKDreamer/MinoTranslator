@@ -1,0 +1,113 @@
+{
+  "seo": {
+    "title": "Mino Translator | Bilingual YouTube Subtitles for Chrome",
+    "description": "Mino Translator is a Chrome extension for bilingual YouTube subtitles and in-page selection translation. Bring your own AI model.",
+    "ogTitle": "Mino Translator",
+    "ogDescription": "Bilingual subtitles for YouTube videos and instant translation for selected text on any webpage."
+  },
+  "nav": {
+    "features": "Features",
+    "install": "Install",
+    "faq": "FAQ",
+    "download": "Download ZIP",
+    "language": "中文",
+    "menu": "Menu"
+  },
+  "hero": {
+    "status": "Not on the Chrome Web Store yet",
+    "title": "A smarter way to translate YouTube",
+    "subtitle": "Bilingual subtitles for videos, instant translation for any text you select, with a clear ZIP install guide.",
+    "primaryCta": "Download ZIP",
+    "secondaryCta": "View install guide",
+    "previewAlt": "Bilingual YouTube subtitle preview",
+    "popupAlt": "Mino Translator extension popup preview",
+    "installTitle": "From download to ready in 4 steps",
+    "installText": "Currently distributed as a ZIP package. Download, unzip, load the unpacked extension in Chrome, and add your API key.",
+    "checks": [
+      {"title": "Download ZIP", "text": "Get the latest package"},
+      {"title": "Open extensions", "text": "chrome://extensions"},
+      {"title": "Load unpacked", "text": "Choose the unzipped folder"},
+      {"title": "Add API key", "text": "Use your own model provider"}
+    ]
+  },
+  "features": {
+    "title": "There when you need it, invisible when you do not",
+    "body": "Mino breaks subtitles, selection translation, and model setup into clean workflows that stay out of your way.",
+    "items": [
+      {"title": "Bilingual YouTube subtitles", "body": "Overlay both source and translated subtitles on the player, synced to the current playback position."},
+      {"title": "Selection translation", "body": "Select any text on a page and a lightweight translation bubble appears. Read and move on."},
+      {"title": "Bring your own model", "body": "Compatible with any OpenAI-compatible API. Choose the provider you trust."},
+      {"title": "ZIP install", "body": "A clear manual install path before the store listing — no waiting for approval."},
+      {"title": "Customizable subtitle appearance", "body": "Subtitle mode, font size, position, background opacity, and color — all adjustable in settings."}
+    ],
+    "miniAlt": "Subtitle translation preview"
+  },
+  "scenes": {
+    "youtubeTitle": "Subtitles that work like a tool should",
+    "youtubeBody": "Bilingual subtitles overlay the video with adjustable opacity and font size. You focus on the content — Mino handles the translation.",
+    "youtubeAlt": "Bilingual subtitles on a YouTube video player",
+    "popupTitle": "Popup for the actions that matter",
+    "popupBody": "Open a captioned YouTube video and Mino detects available tracks automatically. Click the Mino icon to open the panel, choose your target language, and start translating. When translation completes, a lightweight notification appears in the corner — no tab switching, no interruption.",
+    "popupAlt": "Extension popup showing an active translation task"
+  },
+  "download": {
+    "status": "ZIP package",
+    "title": "Download and load into Chrome manually",
+    "body": "Mino is not yet listed on the Chrome Web Store. Download the ZIP, unzip it, and load the unpacked extension in developer mode.",
+    "version": "Version",
+    "format": "Format",
+    "size": "File size",
+    "sha": "SHA256",
+    "published": "Updated",
+    "comingSoon": "Coming soon",
+    "notReady": "Download package coming soon",
+    "installGuide": "View install guide"
+  },
+  "install": {
+    "title": "Install in four clear steps",
+    "body": "Manual installation takes a few extra clicks — we've laid out every step so you can follow along.",
+    "steps": [
+      {"title": "Download ZIP", "body": "Get the latest package from the website."},
+      {"title": "Unzip folder", "body": "Extract it somewhere easy to find."},
+      {"title": "Load unpacked", "body": "Open chrome://extensions and enable developer mode."},
+      {"title": "Add API key", "body": "Enter API URL, API key, and model ID in settings."}
+    ]
+  },
+  "api": {
+    "title": "Your model, your rules",
+    "body": "Mino supports any OpenAI-compatible API. The website has no accounts and never stores your API key.",
+    "modelAlt": "Model API settings panel",
+    "subtitleAlt": "Subtitle display settings panel",
+    "points": [
+      "The website does not provide API keys",
+      "Configure your OpenAI-compatible API in extension settings",
+      "API keys stay in local browser storage only"
+    ]
+  },
+  "faq": {
+    "title": "Frequently asked questions",
+    "items": [
+      {"question": "Is Mino on the Chrome Web Store?", "answer": "Not yet. The website currently provides a ZIP package with a detailed manual install guide."},
+      {"question": "Why do I need developer mode?", "answer": "Because the extension is not listed on the Chrome Web Store. ZIP installation requires enabling developer mode and loading the unpacked folder."},
+      {"question": "Do I need my own API key?", "answer": "Yes. You need to configure an OpenAI-compatible API provider. The website does not provide model accounts or API keys."},
+      {"question": "Which languages are supported?", "answer": "Translation capabilities depend on your configured model. The website UI supports Simplified Chinese and English."},
+      {"question": "Which websites are supported?", "answer": "YouTube is the core scenario for subtitles. Selection translation works on most common webpages."},
+      {"question": "Can it translate videos without captions?", "answer": "No. Subtitle translation depends on the video having a caption track. Without one, subtitles cannot be generated."},
+      {"question": "Does the website receive my API key?", "answer": "No. The website has no login system and does not process your translation data. All requests go directly to your configured API provider."},
+      {"question": "How do I update the extension?", "answer": "Download the new ZIP, unzip it, and reload the unpacked extension folder in Chrome extension management."}
+    ]
+  },
+  "privacy": {
+    "title": "Privacy and trust",
+    "items": [
+      {"title": "No account needed", "body": "The website does not offer sign-up or login."},
+      {"title": "Text stays private", "body": "Translation text is never sent to the website."},
+      {"title": "Bring your own provider", "body": "Requests go directly to your configured API provider."},
+      {"title": "Local storage only", "body": "API keys are stored locally by the browser extension."}
+    ]
+  },
+  "footer": {
+    "domain": "www.zaymino.com",
+    "note": "Chrome extension website, currently distributed via ZIP package."
+  }
+}

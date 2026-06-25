@@ -1,0 +1,113 @@
+{
+  "seo": {
+    "title": "Mino Translator | YouTube 双语字幕 Chrome 扩展",
+    "description": "Mino Translator 是一款 Chrome 扩展，为 YouTube 提供双语字幕翻译和网页划词翻译，支持自选模型服务。",
+    "ogTitle": "Mino Translator",
+    "ogDescription": "为 YouTube 视频显示双语字幕，为网页文本快速翻译。"
+  },
+  "nav": {
+    "features": "功能",
+    "install": "安装",
+    "faq": "常见问题",
+    "download": "下载 ZIP",
+    "language": "EN",
+    "menu": "打开菜单"
+  },
+  "hero": {
+    "status": "暂未上架 Chrome Web Store",
+    "title": "翻译 YouTube，从未如此轻松",
+    "subtitle": "为视频提供双语字幕，为网页提供即选即译，并附带清晰的 ZIP 安装指引。",
+    "primaryCta": "下载 ZIP",
+    "secondaryCta": "查看安装步骤",
+    "previewAlt": "YouTube 双语字幕效果预览",
+    "popupAlt": "Mino Translator 扩展弹窗示意",
+    "installTitle": "从下载到使用，仅需三步",
+    "installText": "当前通过 ZIP 安装包分发。下载后解压，在 Chrome 中加载已解压的扩展，填入 API Key 即可使用。",
+    "checks": [
+      {"title": "下载 ZIP", "text": "获取最新安装包"},
+      {"title": "打开扩展管理", "text": "chrome://extensions"},
+      {"title": "加载已解压扩展", "text": "选择解压后的目录"},
+      {"title": "填写 API Key", "text": "使用你的模型服务"}
+    ]
+  },
+  "features": {
+    "title": "你需要时在场，不需要时隐身",
+    "body": "Mino 将字幕、划词翻译和模型配置拆解为清晰的工作流，不打扰你的观看与阅读。",
+    "items": [
+      {"title": "YouTube 双语字幕", "body": "在播放器上叠加显示原文与译文，按当前播放位置精准翻译。"},
+      {"title": "网页划词翻译", "body": "选中文字即可唤起翻译入口，译文以轻量气泡呈现，即看即走。"},
+      {"title": "自配模型服务", "body": "支持 OpenAI-compatible API，自由选择你信任的模型提供商。"},
+      {"title": "ZIP 安装", "body": "上架前提供清晰的手动安装路径，无需等待商店审核。"},
+      {"title": "字幕外观可调", "body": "字幕模式、字号、位置、背景透明度与颜色，均可按喜好自定义。"}
+    ],
+    "miniAlt": "字幕翻译效果预览"
+  },
+  "scenes": {
+    "youtubeTitle": "字幕如工具，安静而可靠",
+    "youtubeBody": "双语字幕覆盖在视频画面上，背景透明与字号均可调节。你专注于内容，Mino 处理翻译。",
+    "youtubeAlt": "播放器中的双语字幕效果",
+    "popupTitle": "弹出面板，聚焦核心操作",
+    "popupBody": "打开含字幕的 YouTube 视频后，插件自动识别可用轨道。点击 Mino 图标唤起面板，选择目标语言并开始翻译。翻译完成后右下角弹出轻量通知，无需离开当前画面，不打断观看节奏。",
+    "popupAlt": "扩展弹窗中的翻译任务面板"
+  },
+  "download": {
+    "status": "ZIP 安装包",
+    "title": "下载后手动加载到 Chrome",
+    "body": "尚未上架 Chrome Web Store。下载 ZIP 包后解压，通过开发者模式加载已解压的扩展目录即可。",
+    "version": "版本",
+    "format": "格式",
+    "size": "文件大小",
+    "sha": "SHA256",
+    "published": "更新日期",
+    "comingSoon": "即将开放",
+    "notReady": "下载包即将开放",
+    "installGuide": "查看安装步骤"
+  },
+  "install": {
+    "title": "四步完成安装",
+    "body": "手动安装比商店安装多一步，我们已将每一步清晰列出，跟着操作即可。",
+    "steps": [
+      {"title": "下载 ZIP", "body": "从官网下载最新安装包。"},
+      {"title": "解压文件夹", "body": "解压到你容易找到的位置。"},
+      {"title": "加载已解压扩展", "body": "打开 chrome://extensions 并启用开发者模式。"},
+      {"title": "填写 API Key", "body": "在设置页填入 API URL、API Key 和 Model ID。"}
+    ]
+  },
+  "api": {
+    "title": "模型配置，由你掌控",
+    "body": "Mino 支持 OpenAI-compatible API。网站无账号系统，不存储你的任何 API Key。",
+    "modelAlt": "模型 API 设置面板",
+    "subtitleAlt": "字幕显示设置面板",
+    "points": [
+      "官网不提供 API Key",
+      "在扩展设置中填写 OpenAI-compatible API",
+      "API Key 仅存储在本地浏览器扩展中"
+    ]
+  },
+  "faq": {
+    "title": "常见问题",
+    "items": [
+      {"question": "Mino 上架 Chrome Web Store 了吗？", "answer": "尚未。当前官网提供 ZIP 安装包和详细的手动安装指南。"},
+      {"question": "为什么需要用开发者模式安装？", "answer": "因为插件暂未上架 Chrome Web Store。ZIP 安装需要在扩展管理页启用开发者模式，然后加载已解压的目录。"},
+      {"question": "必须自备 API Key 吗？", "answer": "是的。你需要配置一个 OpenAI-compatible API 服务，官网不提供模型账号或 API Key。"},
+      {"question": "支持哪些语言？", "answer": "扩展的翻译能力取决于你配置的模型服务。官网界面支持简体中文和英文。"},
+      {"question": "支持哪些网站？", "answer": "核心场景是 YouTube 字幕翻译，同时支持常见网页的划词翻译。"},
+      {"question": "视频没有字幕轨道还能翻译吗？", "answer": "不能。字幕翻译依赖视频自身的字幕轨道，没有轨道则无法生成。"},
+      {"question": "API Key 会发送到官网吗？", "answer": "不会。官网没有登录系统，也不处理你的翻译文本。所有请求直接发往你配置的 API 服务。"},
+      {"question": "如何更新插件？", "answer": "下载新版 ZIP，解压后在 Chrome 扩展管理页重新加载已解压的扩展目录即可。"}
+    ]
+  },
+  "privacy": {
+    "title": "隐私与信任",
+    "items": [
+      {"title": "无需账号", "body": "官网不提供注册与登录功能。"},
+      {"title": "文本不外传", "body": "翻译文本不经过官网服务器。"},
+      {"title": "自选模型", "body": "请求直达你配置的 API 服务。"},
+      {"title": "本地存储", "body": "API Key 保存在浏览器扩展本地存储中。"}
+    ]
+  },
+  "footer": {
+    "domain": "www.zaymino.com",
+    "note": "Chrome 扩展官方网站，当前通过 ZIP 安装包提供。"
+  }
+}

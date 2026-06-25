@@ -23,3 +23,9 @@ doc_es.json
 # ─── Node.js ─────────────────────────────────────
 node_modules/
 package-lock.json
+!website/package-lock.json
+website/.next/
+website/.qa/
+
+# --- ZIP 安装包 --------------------------------
+/Mino-Translator-*.zip
