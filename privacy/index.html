@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>隐私政策 — Mino Translator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', sans-serif;
+      color: #1a1a2e;
+      background: #f8f9fc;
+      line-height: 1.8;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 48px 24px 80px; }
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p { color: #64748b; margin-top: 8px; font-size: 14px; }
+    .lang-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .lang-tabs button {
+      padding: 6px 20px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #64748b;
+      transition: all 0.2s;
+    }
+    .lang-tabs button.active {
+      background: #4f46e5;
+      color: #fff;
+      border-color: #4f46e5;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    .section h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin: 32px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #eef2ff;
+    }
+    .section h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #334155;
+      margin: 20px 0 8px;
+    }
+    .section p, .section li {
+      color: #475569;
+      font-size: 15px;
+      margin-bottom: 10px;
+    }
+    .section ul { padding-left: 20px; }
+    .section li { margin-bottom: 6px; }
+    .section strong { color: #1e293b; }
+    .highlight-box {
+      background: #eef2ff;
+      border-left: 4px solid #4f46e5;
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin: 16px 0;
+    }
+    .highlight-box p { color: #4338ca; margin-bottom: 0; font-size: 14px; }
+    .last-updated {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 13px;
+      margin-top: 48px;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 24px 16px 60px; }
+      header h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Mino Translator</h1>
+    <p>隐私政策 · Privacy Policy</p>
+  </header>
+
+  <!-- Language tabs -->
+  <div class="lang-tabs">
+    <button class="active" onclick="switchLang('zh')">中文</button>
+    <button onclick="switchLang('en')">English</button>
+  </div>
+
+  <!-- ====== 中文 ====== -->
+  <div id="zh" class="section active">
+
+    <p class="highlight-box">
+      <strong>简短声明：</strong>Mino Translator <strong>不会收集</strong>你的个人信息、浏览记录或页面内容进行分析。
+      扩展仅在 YouTube 字幕页面和被用户主动触发划词翻译时，将选中的文本发送到你所配置的翻译模型 API 进行翻译。
+    </p>
+
+    <h2>1. 我们收集的信息</h2>
+    <h3>1.1 用户主动提供的信息</h3>
+    <ul>
+      <li><strong>API Key</strong>：你在选项页填写的 AI 翻译服务 API 密钥。密钥经过 AES-256-GCM 加密后存储在 Chrome 同步存储中（<code>chrome.storage.sync</code>），仅在你本地设备上使用，不会被上传到我们的任何服务器。</li>
+      <li><strong>翻译偏好设置</strong>：你选择的翻译模型、目标语言、字幕样式（字号、颜色、位置、透明度等）。这些设置仅存储在本地（<code>chrome.storage.local</code> / <code>sync</code>），用于提供个性化体验。</li>
+    </ul>
+
+    <h3>1.2 自动处理的临时数据</h3>
+    <ul>
+      <li><strong>YouTube 字幕文本</strong>：为提供字幕翻译功能，扩展会读取当前 YouTube 视频的字幕文本，并将其发送到你配置的 AI 翻译 API 进行翻译。这些文本仅用于翻译请求，<strong>不会被我们持久化存储或记录</strong>。</li>
+      <li><strong>划词翻译文本</strong>：当你手动选中页面文本并触发翻译时，扩展会将选中文本发送到 AI 翻译 API。这些文本仅用于翻译请求，不会被持久化存储。</li>
+      <li><strong>页面 URL</strong>：扩展会读取当前页面 URL（仅 YouTube 域名）以识别视频 ID 和加载对应的字幕。此信息不会被传输或记录。</li>
+    </ul>
+
+    <h2>2. 数据的使用</h2>
+    <p>所有数据处理仅用于一个目的：<strong>将文本从源语言翻译到你设定的目标语言</strong>。具体流程：</p>
+    <ul>
+      <li>扩展捕获字幕文本或用户选中的文本</li>
+      <li>将文本组装为翻译请求，发送到你配置的第三方 AI API</li>
+      <li>接收翻译结果并显示在页面上</li>
+      <li>翻译完成后，所有临时数据在内存中被释放</li>
+    </ul>
+
+    <h2>3. 数据的共享与传输</h2>
+    <ul>
+      <li><strong>我们不会收集或出售你的任何数据。</strong></li>
+      <li>翻译文本会被发送到你选择的<strong>第三方 AI 服务商</strong>（如 Agnes AI、DeepSeek、OpenAI 等），受该服务商各自的隐私政策约束。请在使用前查阅你选择的服务的隐私条款。</li>
+      <li>扩展本身没有后端服务器。所有配置数据仅存储在浏览器的本地存储和 Chrome 同步存储中。</li>
+    </ul>
+
+    <h2>4. 数据存储与安全</h2>
+    <ul>
+      <li><strong>API Key 加密</strong>：API 密钥在存储前使用 AES-256-GCM 进行加密，加密种子通过 PBKDF2 派生，密钥仅存在于当前浏览器环境中。</li>
+      <li><strong>翻译缓存</strong>：扩展会在内存中短暂缓存最近 1 小时的翻译结果，以避免重复请求。缓存不会持久化到磁盘，浏览器关闭后自动清除。</li>
+      <li><strong>无外部服务器</strong>：扩展不运营任何后端服务器，不收集日志，不跟踪用户行为。</li>
+    </ul>
+
+    <h2>5. 权限说明</h2>
+    <ul>
+      <li><strong>storage</strong>：用于存储你的 API 密钥（加密）和偏好设置。</li>
+      <li><strong>activeTab</strong>：用于读取当前页面上你主动选中的文本进行划词翻译。</li>
+      <li><strong>tabs</strong>：用于检测 YouTube 页面状态以加载字幕。</li>
+      <li><strong>host_permissions (youtube.com)</strong>：仅在 YouTube 页面上注入字幕翻译功能。</li>
+      <li><strong>offscreen</strong>：用于管理后台音频播放等辅助功能。</li>
+    </ul>
+
+    <h2>6. 你的权利</h2>
+    <ul>
+      <li><strong>删除数据</strong>：你可以在扩展选项页中清除所有存储的设置和数据。右键扩展图标 → "选项" → 底部有清除按钮。也可以直接在 Chrome 扩展管理页中卸载扩展，所有本地数据将一并删除。</li>
+      <li><strong>控制 API 密钥</strong>：你随时可以修改或删除已配置的 API 密钥。</li>
+      <li><strong>选择模型</strong>：你可以自由选择或切换使用的 AI 翻译服务商。</li>
+    </ul>
+
+    <h2>7. 政策更新</h2>
+    <p>本隐私政策可能会根据功能变化或法规要求进行更新。重大变更将在扩展的下一次更新中通知。建议定期查阅本页面。</p>
+
+    <h2>8. 联系我们</h2>
+    <p>如果你对本隐私政策有任何疑问，请通过以下方式联系我们：</p>
+    <ul>
+      <li>GitHub Issues：<a href="https://github.com/LZKDreamer/MinoTranslator/issues" target="_blank">github.com/LZKDreamer/MinoTranslator/issues</a></li>
+    </ul>
+  </div>
+
+  <!-- ====== English ====== -->
+  <div id="en" class="section">
+
+    <p class="highlight-box">
+      <strong>TL;DR:</strong> Mino Translator <strong>does not collect</strong> your personal information, browsing history, or page content for analysis.
+      The extension only sends selected text to the AI translation API you configured when it runs on YouTube subtitle pages or when you manually trigger text selection translation.
+    </p>
+
+    <h2>1. Information We Collect</h2>
+    <h3>1.1 Information You Provide</h3>
+    <ul>
+      <li><strong>API Key</strong>: The API key you enter in the options page for AI translation services. It is encrypted with AES-256-GCM before being stored in Chrome's sync storage (<code>chrome.storage.sync</code>). It is used only on your local device and is never uploaded to our servers.</li>
+      <li><strong>Translation Preferences</strong>: Your chosen model, target language, subtitle style (font size, color, position, opacity, etc.). These are stored locally and used solely to personalize your experience.</li>
+    </ul>
+
+    <h3>1.2 Temporarily Processed Data</h3>
+    <ul>
+      <li><strong>YouTube Subtitle Text</strong>: To provide subtitle translation, the extension reads the current video's subtitle text and sends it to your configured AI translation API. This text is used only for the translation request and is <strong>not persisted or logged</strong>.</li>
+      <li><strong>Selected Text for Translation</strong>: When you manually select text on a page and trigger translation, the extension sends that text to the AI translation API. This text is used only for the translation request and is not persisted.</li>
+      <li><strong>Page URL</strong>: The extension reads the current page URL (YouTube only) to identify the video ID and load corresponding subtitles. This information is not transmitted or recorded.</li>
+    </ul>
+
+    <h2>2. How We Use Data</h2>
+    <p>All data processing serves a single purpose: <strong>translate text from the source language to your target language</strong>. The flow:</p>
+    <ul>
+      <li>The extension captures subtitle text or user-selected text</li>
+      <li>It assembles a translation request and sends it to your configured third-party AI API</li>
+      <li>The translation result is received and displayed on the page</li>
+      <li>Once translation completes, all temporary data is released from memory</li>
+    </ul>
+
+    <h2>3. Data Sharing &amp; Transfer</h2>
+    <ul>
+      <li><strong>We do not collect, sell, or share any of your data.</strong></li>
+      <li>Translation text is sent to the <strong>third-party AI service provider</strong> of your choice (e.g., Agnes AI, DeepSeek, OpenAI, etc.), and is subject to that provider's own privacy policy. Please review their terms before use.</li>
+      <li>The extension has no backend server. All configuration data is stored only in your browser's local and sync storage.</li>
+    </ul>
+
+    <h2>4. Data Storage &amp; Security</h2>
+    <ul>
+      <li><strong>API Key Encryption</strong>: API keys are encrypted with AES-256-GCM before storage. The encryption seed is derived via PBKDF2, and the key exists only in your current browser environment.</li>
+      <li><strong>Translation Cache</strong>: Recent translation results are cached in memory for up to 1 hour to avoid duplicate requests. This cache is not persisted to disk and is cleared when the browser is closed.</li>
+      <li><strong>No Backend Server</strong>: The extension does not operate any backend server, collect logs, or track user behavior.</li>
+    </ul>
+
+    <h2>5. Permission Justification</h2>
+    <ul>
+      <li><strong>storage</strong>: Stores your encrypted API keys and preferences.</li>
+      <li><strong>activeTab</strong>: Reads text you manually select on the current page for translation.</li>
+      <li><strong>tabs</strong>: Detects YouTube page state to load subtitles.</li>
+      <li><strong>host_permissions (youtube.com)</strong>: Injects subtitle translation functionality on YouTube pages only.</li>
+      <li><strong>offscreen</strong>: Manages background audio and other auxiliary functions.</li>
+    </ul>
+
+    <h2>6. Your Rights</h2>
+    <ul>
+      <li><strong>Delete Data</strong>: Clear all stored settings and data from the extension options page (right-click extension icon → "Options" → clear button at the bottom). You can also uninstall the extension from Chrome's extension manager to delete all local data.</li>
+      <li><strong>Control API Keys</strong>: Modify or delete configured API keys at any time.</li>
+      <li><strong>Choose Your Model</strong>: Freely select or switch between AI translation providers.</li>
+    </ul>
+
+    <h2>7. Policy Updates</h2>
+    <p>This privacy policy may be updated to reflect feature changes or legal requirements. Significant changes will be announced in the next extension update. Please check this page periodically.</p>
+
+    <h2>8. Contact Us</h2>
+    <p>If you have any questions about this privacy policy, please reach out via:</p>
+    <ul>
+      <li>GitHub Issues: <a href="https://github.com/LZKDreamer/MinoTranslator/issues" target="_blank">github.com/LZKDreamer/MinoTranslator/issues</a></li>
+    </ul>
+
+  </div>
+
+  <p class="last-updated">最后更新 / Last Updated: 2026-06-25</p>
+</div>
+
+<script>
+function switchLang(lang) {
+  document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.lang-tabs button').forEach(el => el.classList.remove('active'));
+  document.getElementById(lang).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>
