@@ -24,7 +24,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["src/shared/messaging.js", "src/shared/crypto-utils.js", "src/shared/translate-prompt.js", "src/content/timedtext-interceptor.js", "src/content/youtube-subtitles.js", "src/content/subtitle-renderer.js", "src/content/youtube.js", "src/content/floating-translate.js"],
+      "js": ["src/shared/constants.js", "src/shared/messaging.js", "src/shared/crypto-utils.js", "src/shared/translate-prompt.js", "src/content/timedtext-interceptor.js", "src/content/youtube-subtitles.js", "src/content/subtitle-renderer.js", "src/content/youtube.js", "src/content/floating-translate.js"],
       "css": ["src/content/styles/subtitle.css", "src/content/styles/floating.css"],
       "run_at": "document_idle"
     },

@@ -48,28 +48,6 @@ var TranslatePrompt = (function () {
     return lang || 'target language';
   }
 
-  // ======== 分语言的翻译指令 ========
-  function getLanguageInstructions(sourceLanguage) {
-    var level = getLanguageLevel(sourceLanguage);
-    var code = (sourceLanguage || '').split(/[-_]/)[0].toLowerCase();
-    var parts = [];
-
-    if (level === 'high') {
-      parts.push('CRITICAL: The source language (' + getLangName(sourceLanguage) + ') frequently omits subjects and objects. You MUST infer them from the provided context. Do NOT guess if context is insufficient — use passive voice or general references instead.');
-      parts.push('Pay close attention to speaker relationships and politeness/formality levels. Reflect them naturally in the translation.');
-      if (code === 'ko') {
-        parts.push('Korean-specific: Honorifics (~습니다, ~요, 반말) encode relationship dynamics — choose equivalent Chinese register (您/你, 请/吧). Sentence-ending particles (~네요, ~군요, ~지요, ~잖아) convey surprise, realization, agreement — preserve these nuances with Chinese particles like 呢, 啊, 哦, 吧, 嘛.');
-      }
-      if (code === 'ja') {
-        parts.push('Japanese-specific: 敬語/謙譲語/タメ語 encode social hierarchy — map to appropriate Chinese register. Sentence-final particles (ね, よ, わ, ぞ) convey important nuance.');
-      }
-    } else if (level === 'medium') {
-      parts.push('Note: The source language may omit subjects. Use the provided context to resolve pronoun references and keep meaning clear.');
-    }
-
-    return parts.length ? parts.join('\n') : '';
-  }
-
   // ======== 构建字幕翻译 prompt（统一入口） ========
 
   /**
@@ -102,15 +80,6 @@ var TranslatePrompt = (function () {
     if (opts.videoTitle) {
       systemLines.push('');
       systemLines.push('Video topic: ' + opts.videoTitle + ' — use this to disambiguate domain-specific terms.');
-    }
-
-    // === Language-specific instructions ===
-    if (opts.sourceLanguage) {
-      var langInst = getLanguageInstructions(opts.sourceLanguage);
-      if (langInst) {
-        systemLines.push('');
-        systemLines.push(langInst);
-      }
     }
 
     // === User Prompt ===
@@ -199,14 +168,6 @@ var TranslatePrompt = (function () {
     if (opts.videoTitle) {
       systemLines.push('');
       systemLines.push('Video topic: ' + opts.videoTitle + ' — use this to disambiguate domain-specific terms.');
-    }
-
-    if (opts.sourceLanguage) {
-      var langInst = getLanguageInstructions(opts.sourceLanguage);
-      if (langInst) {
-        systemLines.push('');
-        systemLines.push(langInst);
-      }
     }
 
     // === User Prompt ===
@@ -304,14 +265,98 @@ var TranslatePrompt = (function () {
     return cleaned.replace(/\s+/g, ' ').trim();
   }
 
+  // ======== 批量翻译 prompt（新方案：本地已断句，AI 只翻译）========
+
+  /**
+   * 构建批量字幕翻译的 messages 数组
+   * 本地已完成断句和时间轴对齐，AI 只需要翻译
+   * @param {Object} opts
+   * @param {string[]} opts.sentences - 已断句的原文数组
+   * @param {string} opts.targetLanguage - 目标语言代码
+   * @param {string} [opts.sourceLanguage] - 源语言代码
+   * @param {string} [opts.videoTitle] - 视频标题（提供领域上下文）
+   * @param {Array<{index:number, original:string, translated:string}>} [opts.prevContexts] - 前一批的最后几句译文
+   * @returns {{ system: string, user: string }}
+   */
+  function buildBatchTranslatePrompt(opts) {
+    var targetName = getLangName(opts.targetLanguage);
+    var sourceName = opts.sourceLanguage ? getLangName(opts.sourceLanguage) : 'the source language';
+    var isBatch = opts.sentences.length > 1;
+
+    // === System Prompt ===
+    var systemLines = [];
+    systemLines.push('You are a professional subtitle translator.');
+    systemLines.push('Translate the following lines from ' + sourceName + ' to natural, colloquial ' + targetName + '.');
+    systemLines.push('');
+    systemLines.push('CORE RULES:');
+    systemLines.push('1. Natural spoken ' + targetName + ' — like a native speaker, NOT literal word-for-word translation');
+    systemLines.push('2. Adapt idioms, slang, and cultural references to equivalent ' + targetName + ' expressions');
+    systemLines.push('3. Preserve the speaker\'s tone and intent: casual, formal, humorous, serious, sarcastic, excited');
+    systemLines.push('4. Keep each line concise and natural — subtitles are read at speaking speed');
+    systemLines.push('5. Maintain flow and coherence — consecutive lines should read as continuous natural speech');
+    systemLines.push('6. Questions stay questions, exclamations stay exclamations, commands stay commands');
+    systemLines.push('');
+    systemLines.push('CRITICAL:');
+    systemLines.push('- Translate EACH line independently into ' + targetName);
+    systemLines.push('- Do NOT merge lines, do NOT skip lines, do NOT reorder lines');
+    systemLines.push('- Do NOT add explanations, notes, greetings, or commentary');
+    systemLines.push('- Do NOT answer questions in the text — TRANSLATE them');
+    systemLines.push('- Output ONLY the translations');
+
+    if (isBatch) {
+      systemLines.push('');
+      systemLines.push('OUTPUT FORMAT:');
+      systemLines.push('Return ONLY a JSON array of translated strings.');
+      systemLines.push('Same number of elements, same order as input.');
+      systemLines.push('Example: a JSON array like [T1, T2, T3] in order');
+      systemLines.push('No markdown, no code blocks, no explanations.');
+    }
+
+    // === User Prompt ===
+    var userParts = [];
+
+    if (opts.videoTitle) {
+      userParts.push('Video topic: "' + opts.videoTitle + '"');
+      userParts.push('');
+    }
+
+    // Previous context (for sequential batches on long videos)
+    if (opts.prevContexts && opts.prevContexts.length > 0) {
+      userParts.push('--- Previous lines (already translated, for context only) ---');
+      opts.prevContexts.forEach(function (ctx) {
+        userParts.push('[' + ctx.index + '] ' + sourceName + ': ' + ctx.original);
+        userParts.push('[' + ctx.index + '] ' + targetName + ': ' + ctx.translated);
+      });
+      userParts.push('--- End of context ---');
+      userParts.push('');
+    }
+
+    if (isBatch) {
+      userParts.push('Translate these ' + opts.sentences.length + ' subtitle lines to natural ' + targetName + ':');
+      userParts.push('');
+      opts.sentences.forEach(function (s, i) {
+        userParts.push('[' + i + '] ' + s);
+      });
+    } else {
+      userParts.push('Translate this subtitle line to natural ' + targetName + ':');
+      userParts.push('');
+      userParts.push(opts.sentences[0]);
+    }
+
+    return {
+      system: systemLines.join('\n'),
+      user: userParts.join('\n'),
+    };
+  }
+
   return {
     getLanguageLevel: getLanguageLevel,
     getContextWindowSize: getContextWindowSize,
     getLangName: getLangName,
-    getLanguageInstructions: getLanguageInstructions,
     buildSubtitlePrompt: buildSubtitlePrompt,
     buildFloatingPrompt: buildFloatingPrompt,
     buildRewritePrompt: buildRewritePrompt,
+    buildBatchTranslatePrompt: buildBatchTranslatePrompt,
     cleanCueText: cleanCueText,
   };
 })();

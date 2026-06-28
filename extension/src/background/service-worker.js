@@ -1,4 +1,4 @@
-importScripts('/src/shared/crypto-utils.js', '/src/background/storage.js', '/src/background/translator.js', '/src/shared/translate-prompt.js');
+importScripts('/src/shared/constants.js', '/src/shared/crypto-utils.js', '/src/background/storage.js', '/src/background/translator.js', '/src/shared/translate-prompt.js');
 
 const MAX_VIDEO_TASKS = 3;
 const debugLogBuffer = [];
@@ -16,7 +16,7 @@ async function persistTasks() {
   try {
     const tasks = {};
     for (const [videoId, task] of videoTasks) {
-      if (task.status !== 'canceled' && task.status !== 'available') {
+      if (task.status !== STATUS.CANCELED && task.status !== STATUS.AVAILABLE) {
         tasks[videoId] = task;
       }
     }
@@ -30,7 +30,7 @@ async function loadPersistedTasks() {
     const tasks = data[STORAGE_TASKS_KEY];
     if (tasks) {
       for (const [videoId, task] of Object.entries(tasks)) {
-        if (task.status !== 'canceled') {
+        if (task.status !== STATUS.CANCELED) {
           videoTasks.set(videoId, task);
         }
       }
@@ -61,17 +61,17 @@ const messageHandlers = {
 
     const existing = videoTasks.get(videoId);
     if (!existing && getActiveTaskCount() >= MAX_VIDEO_TASKS) {
-      return { error: '最多同时处理 3 个视频任务' };
+      return { error: chrome.i18n.getMessage('maxVideoTasks') || '最多同时处理 3 个视频任务' };
     }
 
-    if (existing && existing.status === 'completed') {
+    if (existing && existing.status === STATUS.COMPLETED) {
       await openOrFocusVideo(existing.url);
       await applyTaskToOpenTabs(existing);
       return { ok: true };
     }
 
     const tabId = Number(request.tabId || existing?.tabId || 0);
-    if (!tabId) return { error: '需要先打开该 YouTube 视频以获取字幕' };
+    if (!tabId) return { error: chrome.i18n.getMessage('needOpenVideo') || '需要先打开该 YouTube 视频以获取字幕' };
 
     const prepared = await sendTabMessage(tabId, {
       type: 'PREPARE_VIDEO_TRANSLATION',
@@ -79,14 +79,14 @@ const messageHandlers = {
     }, 30000);
     if (prepared.error) return prepared;
     if (!prepared.cues || prepared.cues.length === 0) {
-      return { error: '该视频没有可用字幕' };
+      return { error: chrome.i18n.getMessage('noSubtitles') || '该视频没有可用字幕' };
     }
 
     const settings = await StorageManager.getAll();
     const modelKey = settings.defaultModel || 'agnes-ai';
     const model = settings.models?.[modelKey];
     if (!model || !model.apiKey) {
-      return { error: '请先在设置中配置 API Key' };
+      return { error: chrome.i18n.getMessage('noApiKey') || '请先在设置中配置 API Key' };
     }
 
     const targetLanguage = request.targetLanguage || settings.targetLanguage || 'zh-CN';
@@ -100,82 +100,25 @@ const messageHandlers = {
       thumbnailUrl: prepared.thumbnailUrl || getYouTubeThumbnail(videoId),
       sourceLanguage: prepared.sourceLanguage || 'unknown',
       targetLanguage,
-      status: 'translating',
+      status: STATUS.TRANSLATING,
       progress: 0,
       completedGroups: 0,
       totalGroups: 0,
       cues: prepared.cues,
       translations: {},
       modelKey, modelId: model.modelId, apiUrl, apiKey: model.apiKey,
-      estimatedSeconds: Math.ceil(prepared.cues.length * 0.6) + 5,
       updatedAt: Date.now(),
     };
     videoTasks.set(videoId, task);
     persistTasks();
 
-    messageHandlers.attemptRewrite(task, prepared, model, targetLanguage, apiUrl).catch(function () {});
+    // 触发 content script 开始批量翻译（异步，不阻塞返回）
+    sendTabMessage(tabId, {
+      type: 'START_SUBTITLE_TRANSLATION',
+      targetLanguage: targetLanguage,
+    }, 5000).catch(function () {});
 
     return { ok: true };
-  },
-
-  async attemptRewrite(task, prepared, model, targetLanguage, apiUrl) {
-    const videoId = task.videoId;
-    try {
-      const rewritePrompt = TranslatePrompt.buildRewritePrompt({
-        cues: prepared.cues,
-        sourceLanguage: prepared.sourceLanguage,
-        targetLanguage: targetLanguage,
-        videoTitle: prepared.title || '',
-      });
-
-      debugLog('[SW] rewritePhase: sending ' + prepared.cues.length + ' cues to ' + model.modelId);
-      const rewriteResp = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + model.apiKey },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            { role: 'system', content: rewritePrompt.system },
-            { role: 'user', content: rewritePrompt.user },
-          ],
-          max_tokens: 65536,
-          temperature: 0.3,
-        }),
-      });
-
-      if (rewriteResp.ok) {
-        const rewriteData = await rewriteResp.json();
-        const rewriteContent = rewriteData.choices?.[0]?.message?.content || '';
-        if (rewriteContent) {
-          const parsedRewrite = parseRewriteResponse(rewriteContent, prepared.cues);
-          if (parsedRewrite && parsedRewrite.length > 0) {
-            debugLog('[SW] rewritePhase: success, got ' + parsedRewrite.length + ' cues');
-            const cues = parsedRewrite.map(function (item) {
-              return { start: item.start, end: item.end, text: item.original, translated: item.translated };
-            });
-            task.status = 'completed';
-            task.progress = 100;
-            task.completedGroups = cues.length;
-            task.totalGroups = cues.length;
-            task.cues = cues;
-            task.updatedAt = Date.now();
-            videoTasks.set(videoId, task);
-            persistTasks();
-            await applyTaskToOpenTabs(task);
-            await notifyComplete(task);
-            return;
-          }
-        }
-      }
-      debugLog('[SW] rewritePhase: failed (status=' + rewriteResp.status + ')');
-    } catch (err) {
-      debugLog('[SW] rewritePhase: error (' + err.message + ')');
-    }
-
-    task.status = 'failed';
-    task.updatedAt = Date.now();
-    videoTasks.set(videoId, task);
-    persistTasks();
   },
 
   async CANCEL_VIDEO_TASK(request) {
@@ -191,7 +134,7 @@ const messageHandlers = {
     const task = videoTasks.get(videoId);
     const url = task?.url || getYouTubeUrl(videoId);
     const tab = await openOrFocusVideo(url);
-    if (task && task.status === 'completed') {
+    if (task && task.status === STATUS.COMPLETED) {
       // 等待标签页加载完成后再发送字幕（setTimeout 不可靠）
       await waitForTabReady(tab.id, 15000);
       await new Promise(r => setTimeout(r, 600));
@@ -212,7 +155,7 @@ const messageHandlers = {
     };
     videoTasks.set(videoId, next);
     persistTasks();
-    if (next.status === 'completed') {
+    if (next.status === STATUS.COMPLETED) {
       await applyTaskToOpenTabs(next);
       await notifyComplete(next);
     }
@@ -328,7 +271,7 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
   for (const tab of tabs.filter(isYouTubeVideoTab)) {
     const videoId = extractVideoIdFromUrl(tab.url || '');
     const existing = videoTasks.get(videoId);
-    if (existing && (existing.status === 'translating' || existing.status === 'preparing')) {
+    if (existing && (existing.status === STATUS.TRANSLATING || existing.status === STATUS.PREPARING || existing.status === STATUS.FAILED)) {
       existing.tabId = tab.id;
       existing.url = tab.url || existing.url;
       videoTasks.set(videoId, existing);
@@ -336,7 +279,7 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
       continue;
     }
 
-    if (existing && existing.targetLanguage === targetLanguage && existing.status === 'completed') {
+    if (existing && existing.targetLanguage === targetLanguage && existing.status === STATUS.COMPLETED) {
       existing.tabId = tab.id;
       videoTasks.set(videoId, existing);
       persistTasks();
@@ -359,7 +302,7 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
       thumbnailUrl: detected.thumbnailUrl || getYouTubeThumbnail(videoId),
       sourceLanguage: detected.sourceLanguage || 'unknown',
       targetLanguage,
-      status: detected.status || 'available',
+      status: detected.status || STATUS.AVAILABLE,
       progress: detected.progress || 0,
       completedGroups: detected.completedGroups || 0,
       totalGroups: detected.totalGroups || 0,
@@ -370,7 +313,7 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
     videoTasks.set(videoId, item);
     persistTasks();
     // 如果检测到已完成翻译，自动应用字幕到当前标签页
-    if (detected.status === 'completed') {
+    if (detected.status === STATUS.COMPLETED) {
       applyTaskToTab(tab.id, item).catch(() => {});
     }
   }
@@ -379,9 +322,9 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
     items: (function () {
       const tasks = Array.from(videoTasks.values())
         .filter(task => task.targetLanguage === targetLanguage)
-        .filter(task => task.status !== 'canceled');
-      const active = tasks.filter(t => t.status !== 'completed');
-      const done = tasks.filter(t => t.status === 'completed')
+        .filter(task => task.status !== STATUS.CANCELED);
+      const active = tasks.filter(t => t.status !== STATUS.COMPLETED);
+      const done = tasks.filter(t => t.status === STATUS.COMPLETED)
         .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       const MAX_COMPLETED_SHOWN = 10;
       const hasMoreCompleted = !showAllCompleted && done.length > MAX_COMPLETED_SHOWN;
@@ -391,7 +334,7 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
     })(),
     hasMoreCompleted: (function () {
       const done = Array.from(videoTasks.values())
-        .filter(task => task.targetLanguage === targetLanguage && task.status === 'completed');
+        .filter(task => task.targetLanguage === targetLanguage && task.status === STATUS.COMPLETED);
       return done.length > 10;
     })(),
   };
@@ -444,8 +387,8 @@ async function notifyComplete(task) {
   await chrome.notifications.create('yt-translate-complete-' + task.videoId, {
     type: 'basic',
     iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-    title: '字幕翻译完成',
-    message: task.title || 'YouTube 视频已翻译完成',
+    title: chrome.i18n.getMessage('translationComplete') || '字幕翻译完成',
+    message: task.title || '',
     priority: 1,
   }).catch(() => {});
 }
@@ -502,7 +445,7 @@ function getYouTubeUrl(videoId) {
 function getActiveTaskCount() {
   let count = 0;
   for (const task of videoTasks.values()) {
-    if (task.status === 'preparing' || task.status === 'translating') count += 1;
+    if (task.status === STATUS.PREPARING || task.status === STATUS.TRANSLATING) count += 1;
   }
   return count;
 }
@@ -566,44 +509,3 @@ chrome.notifications.onClicked.addListener((notificationId) => {
   openOrFocusVideo(task?.url || getYouTubeUrl(videoId)).catch(() => {});
   chrome.notifications.clear(notificationId).catch(() => {});
 });
-
-/**
- * 解析 AI 返回的全文本重写结果
- * 与 content script 中的 parseRewriteResponse 逻辑一致
- */
-function parseRewriteResponse(content, originalCues) {
-  if (!content) return null;
-  var jsonStr = content.trim();
-  var codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
-  var arrayStart = jsonStr.indexOf('[');
-  var arrayEnd = jsonStr.lastIndexOf(']');
-  if (arrayStart !== -1 && arrayEnd > arrayStart) jsonStr = jsonStr.slice(arrayStart, arrayEnd + 1);
-  var parsed;
-  try { parsed = JSON.parse(jsonStr); } catch (e) {
-    try { parsed = JSON.parse(jsonStr.replace(/[\s\S]*?(\[[\s\S]*)/, '$1')); } catch (e2) { return null; }
-  }
-  if (!Array.isArray(parsed)) return null;
-  var result = [];
-  for (var i = 0; i < parsed.length; i++) {
-    var item = parsed[i];
-    if (item && typeof item === 'object' && item.start != null && item.end != null && item.translated) {
-      result.push({
-        start: Number(item.start),
-        end: Number(item.end),
-        original: String(item.original || item.text || ''),
-        translated: String(item.translated || ''),
-      });
-    }
-  }
-  return result.length > 0 ? result : null;
-}
-
-function debugLog(msg) {
-  console.log('[SW] ' + msg);
-  fetch('http://localhost:19876/log', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timestamp: Date.now(), tag: 'SW-Rewrite', message: msg }),
-  }).catch(function () {});
-}

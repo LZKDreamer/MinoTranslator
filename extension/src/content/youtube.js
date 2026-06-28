@@ -1,14 +1,14 @@
 (function () {
   'use strict';
 
-  const TRANSLATION_WORKER_COUNT = 4; // 初始 worker 数，实际并发由 RateLimiter 动态控制
-  const WARMUP_TRANSLATION_SECONDS = 60;
-  const WARMUP_MIN_GROUPS = 2;
-
   function init() {
     window.addEventListener('online', checkForVideo);
     // 监听 YouTube SPA 导航事件（用于从首页/搜索页点击视频后的检测）
     document.addEventListener('yt-navigate-finish', checkForVideo);
+    // 导航开始时立即清除旧字幕，防止残留 1 秒
+    document.addEventListener('yt-navigate-start', function () {
+      renderer.clear();
+    });
 
     if (!navigator.onLine) {
       console.log('Offline: subtitle translation unavailable');
@@ -44,6 +44,13 @@
 
       if (request.type === 'APPLY_VIDEO_TRANSLATIONS') {
         applyVideoTranslations(request.payload).then(sendResponse).catch(function (err) {
+          sendResponse({ error: err.message });
+        });
+        return true;
+      }
+
+      if (request.type === 'START_SUBTITLE_TRANSLATION') {
+        startTranslation(request.targetLanguage).then(sendResponse).catch(function (err) {
           sendResponse({ error: err.message });
         });
         return true;
@@ -127,36 +134,27 @@
       settings.videoId = videoId;
       settings.sourceLanguage = sourceLanguage || 'unknown';
 
-      // 检查是否有缓存
+      // 检查是否有缓存的已完成翻译
       const currentTask = await chrome.storage.local.get('ytVideoTasks');
       const allTasks = currentTask?.ytVideoTasks || {};
       const existingTask = allTasks[videoId];
-      if (existingTask && existingTask.status === 'completed' && existingTask.targetLanguage === targetLanguage) {
-        // 有已完成的翻译缓存 → 加载完整字幕数据
+      if (existingTask && existingTask.status === STATUS.COMPLETED && existingTask.targetLanguage === targetLanguage) {
+        // 有已完成翻译缓存 → 加载完整数据并尝试恢复
         try {
           const subtitleData = await fetchSubtitles(videoId);
-          if (subtitleData && subtitleData.cues) {
-            const groups = buildTranslationGroups(subtitleData.cues);
-            const coverage = await getSubtitleCacheCoverage(groups, settings);
-            const cues = coverage.complete
-              ? await hydrateCachedTranslations(subtitleData.cues, groups, settings)
-              : subtitleData.cues;
+          if (subtitleData && subtitleData.sentences) {
             return {
               needsTranslation: true,
               videoId,
               title: getCurrentTitle(),
               sourceLanguage,
               thumbnailUrl: 'https://i.ytimg.com/vi/' + videoId + '/default.jpg',
-              status: coverage.complete ? 'completed' : 'available',
-              progress: coverage.progress,
-              completedGroups: coverage.cachedGroups,
-              totalGroups: coverage.totalGroups,
-              cues,
+              status: STATUS.COMPLETED,
+              progress: 100,
+              cues: subtitleData.sentences.map(function (s) { return { start: s.start, end: s.end, text: s.text }; }),
             };
           }
-        } catch (_e) {
-          // 降级：返回基础信息
-        }
+        } catch (_e) { /* 降级 */ }
       }
 
       // 无需完整字幕数据，直接返回可用状态
@@ -166,7 +164,7 @@
         title: getCurrentTitle(),
         sourceLanguage,
         thumbnailUrl: 'https://i.ytimg.com/vi/' + videoId + '/default.jpg',
-        status: 'available',
+        status: STATUS.AVAILABLE,
         progress: 0,
         completedGroups: 0,
         totalGroups: 0,
@@ -188,27 +186,31 @@
       resetInterceptorState();
 
       const settings = await loadSettings(targetLanguage);
-      reportTask({
-        status: 'preparing',
-        videoId,
-        title: getCurrentTitle(),
-        targetLanguage: settings.targetLanguage,
-        progress: 0,
-      });
+      reportTask({ status: STATUS.PREPARING, videoId, title: getCurrentTitle(), targetLanguage: settings.targetLanguage, progress: 0 });
+
+      // 获取字幕 + 本地断句
       const subtitleData = await fetchSubtitles(videoId);
+      if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
+        hasActiveTranslation = false;
+        reportTask({ status: STATUS.FAILED, error: 'No subtitles available' });
+        return { ok: false, error: 'No subtitles available' };
+      }
       if (isSameLanguage(subtitleData.language, settings.targetLanguage)) {
         hasActiveTranslation = false;
-        reportTask({ status: 'canceled' });
+        reportTask({ status: STATUS.CANCELED });
         return { ok: true, skipped: true };
       }
 
       settings.videoId = videoId;
       settings.sourceLanguage = subtitleData.language || 'unknown';
       settings.videoTitle = getCurrentTitle();
-      const isShorts = isShortsPage();
 
+      // 初始化渲染器（先显示原文）
+      var cues = subtitleData.sentences.map(function (s) {
+        return { start: s.start, end: s.end, text: s.text, translated: null };
+      });
       renderer.start(videoEl, {
-        cues: subtitleData.cues,
+        cues: cues,
         mode: settings.subtitleMode || 'bilingual',
         fontSize: settings.fontSize || 'medium',
         position: settings.subPosition || 'above',
@@ -216,120 +218,31 @@
         originalTextColor: settings.originalTextColor || 50,
         translatedTextColor: settings.translatedTextColor || 50,
         subBgColor: settings.subBgColor || 0,
-        isShorts,
+        isShorts: isShortsPage(),
       });
 
-      // ===== Phase 1: 尝试全文本 AI 重写（清洗+断句+翻译，一次性完成） =====
-      reportTask({
-        status: 'rewriting',
-        sourceLanguage: subtitleData.language || 'unknown',
-        progress: 0,
-      });
+      // 批量翻译
+      reportTask({ status: STATUS.TRANSLATING, sourceLanguage: subtitleData.language });
 
-      debugLog('YT-Translator', 'rewritePhase: trying full transcript rewrite');
-      const rewrittenCues = await rewriteSubtitleTranscript(subtitleData.cues, settings);
+      try {
+        var translations = await batchTranslateSentences(subtitleData.sentences, settings);
 
-      if (rewrittenCues && rewrittenCues.length > 0) {
-        // 成功！重写后的字幕 = 清洗后文本 + 准确时间轴 + 翻译
-        debugLog('YT-Translator', 'rewritePhase: success, got ' + rewrittenCues.length + ' cues');
-        subtitleData.cues = rewrittenCues.map(function (item) {
-          return {
-            start: item.start,
-            end: item.end,
-            text: item.original,
-            translated: item.translated,
-          };
-        });
-        renderer.updateCues(subtitleData.cues);
+        // 将译文写回 cues
+        for (var i = 0; i < subtitleData.sentences.length; i++) {
+          cues[i].translated = translations[i] || '';
+        }
+        renderer.updateCues(cues);
         hasActiveTranslation = false;
+
         reportTask({
-          status: 'completed',
-          completedGroups: rewrittenCues.length,
-          totalGroups: rewrittenCues.length,
-          progress: 100,
+          status: STATUS.COMPLETED,
+          cues: cues,
         });
-        return { ok: true };
-      }
-
-      // ===== Phase 2: 全文本重写失败，降级为逐组增量翻译 =====
-      debugLog('YT-Translator', 'rewritePhase: failed, falling back to incremental translation');
-      const groups = buildTranslationGroups(subtitleData.cues);
-      const warmupGroups = selectWarmupGroups(groups, videoEl.currentTime);
-      const warmupSet = new Set(warmupGroups);
-      const remainingGroups = groups.filter(function (group) { return !warmupSet.has(group); });
-      let completedGroups = 0;
-
-      reportTask({
-        status: 'translating',
-        sourceLanguage: subtitleData.language || 'unknown',
-        totalGroups: groups.length,
-        completedGroups,
-        progress: 0,
-      });
-      const applyTranslation = function (cueIndex, translated) {
-        if (runId !== translationRunId) return false;
-        subtitleData.cues[cueIndex] = { ...subtitleData.cues[cueIndex], translated };
-        renderer.updateCues(subtitleData.cues);
-        return true;
-      };
-      const isCurrentRun = function () {
-        return runId === translationRunId;
-      };
-      const onGroupDone = function () {
-        completedGroups += 1;
-        const progress = groups.length ? Math.round((completedGroups / groups.length) * 100) : 0;
-        reportTask({
-          status: 'translating',
-          completedGroups,
-          totalGroups: groups.length,
-          progress,
-        });
-      };
-
-      const warmupPromise = translateGroupsRealtime(warmupGroups, settings, videoEl, applyTranslation, isCurrentRun, onGroupDone);
-      warmupPromise.then(function () {
-        if (!isCurrentRun()) return [];
-        return translateGroupsRealtime(remainingGroups, settings, videoEl, applyTranslation, isCurrentRun, onGroupDone);
-      }).then(function () {
-        if (!isCurrentRun()) return;
+      } catch (err) {
         hasActiveTranslation = false;
-        reportTask({
-          status: 'completed',
-          completedGroups: groups.length,
-          totalGroups: groups.length,
-          progress: 100,
-        });
-      }).catch(function (err) {
-        hasActiveTranslation = false;
-        reportTask({ status: 'failed', error: err.message });
-      });
-
-      if (!subtitleData.cues || subtitleData.cues.length === 0) {
-        currentInterceptListener = async function onLateTimedtext(data) {
-          const langMatch = data.url.match(/[?&]lang=([^&]+)/);
-          const lang = langMatch ? decodeURIComponent(langMatch[1]) : 'unknown';
-          const lateCues = cleanCues(parseSubtitleData(data.text));
-          if (!lateCues.length || !isCurrentRun()) return;
-          settings.sourceLanguage = lang;
-          renderer.start(videoEl, {
-            cues: lateCues,
-            mode: settings.subtitleMode || 'bilingual',
-            fontSize: settings.fontSize || 'medium',
-            position: settings.subPosition || 'above',
-            bgOpacity: settings.bgOpacity || 0.6,
-            originalTextColor: settings.originalTextColor || 50,
-            translatedTextColor: settings.translatedTextColor || 50,
-            subBgColor: settings.subBgColor || 0,
-            isShorts,
-          });
-          const lateGroups = buildTranslationGroups(lateCues);
-          await translateGroupsRealtime(lateGroups, settings, videoEl, function (cueIndex, translated) {
-            lateCues[cueIndex] = { ...lateCues[cueIndex], translated };
-            renderer.updateCues(lateCues);
-            return true;
-          }, isCurrentRun, onGroupDone);
-        };
-        onInterceptedTimedtext(currentInterceptListener);
+        if (runId !== translationRunId) return { ok: false, error: 'Translation cancelled' };
+        reportTask({ status: STATUS.FAILED, error: err.message });
+        debugLog('YT-Translator', 'batch translation failed: ' + err.message);
       }
 
       return { ok: true };
@@ -342,7 +255,7 @@
       if (!videoId || !videoEl) throw new Error('No active YouTube video');
       const settings = await loadSettings(targetLanguage);
       const subtitleData = await fetchSubtitles(videoId);
-      if (!subtitleData.cues || subtitleData.cues.length === 0) {
+      if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
         throw new Error('No subtitles available');
       }
       if (isSameLanguage(subtitleData.language, settings.targetLanguage)) {
@@ -354,7 +267,7 @@
         url: window.location.href,
         thumbnailUrl: 'https://i.ytimg.com/vi/' + videoId + '/default.jpg',
         sourceLanguage: subtitleData.language || 'unknown',
-        cues: subtitleData.cues,
+        cues: subtitleData.sentences.map(function (s) { return { start: s.start, end: s.end, text: s.text }; }),
       };
     }
 
@@ -392,7 +305,7 @@
       cleanupInterceptListener();
       if (hasActiveTranslation) {
         hasActiveTranslation = false;
-        reportTask({ status: 'canceled' });
+        reportTask({ status: STATUS.CANCELED });
       }
     }
 
@@ -465,83 +378,6 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
     setTimeout(checkForVideo, 1500);
-  }
-
-  async function translateGroupsRealtime(groups, settings, videoEl, onProgress, shouldContinue, onGroupDone) {
-    const pending = groups.slice();
-    const translated = [];
-    const workers = [];
-    var completedContexts = new Map();
-
-    for (let i = 0; i < TRANSLATION_WORKER_COUNT; i++) {
-      workers.push(runTranslationWorker());
-    }
-
-    await Promise.all(workers);
-    return translated;
-
-    async function runTranslationWorker() {
-      while (pending.length > 0 && shouldContinue()) {
-        const nextIndex = findNextTranslationGroupIndex(pending, videoEl.currentTime);
-        const group = pending.splice(nextIndex, 1)[0];
-
-        // 查找已完成翻译的、时间上最接近的前一组作为上下文
-        var prevContext = null;
-        var bestPrev = null;
-        completedContexts.forEach(function (ctx, start) {
-          if (start < group.start && (bestPrev === null || start > bestPrev)) {
-            bestPrev = start;
-            prevContext = ctx;
-          }
-        });
-
-        const groupResult = await translateCueGroups([group], settings, prevContext, function (cueIndex, text, translatedGroup) {
-          if (!shouldContinue()) return;
-          if (onProgress) onProgress(cueIndex, text, translatedGroup);
-        });
-
-        // 将完成的翻译存入上下文池，供后续组使用
-        if (groupResult[0] && groupResult[0].translations) {
-          completedContexts.set(group.start, {
-            texts: group.texts.slice(),
-            translations: groupResult[0].translations.slice(),
-          });
-        }
-
-        translated.push(groupResult[0] || group);
-        if (shouldContinue() && onGroupDone) onGroupDone(group);
-      }
-    }
-  }
-
-  function selectWarmupGroups(groups, currentTime) {
-    const ordered = groups.slice().sort(function (a, b) {
-      return getGroupDistanceScore(a, currentTime) - getGroupDistanceScore(b, currentTime);
-    });
-    const windowEnd = currentTime + WARMUP_TRANSLATION_SECONDS;
-    const selected = ordered.filter(function (group) {
-      return group.end >= currentTime && group.start <= windowEnd;
-    });
-    return selected.length > 0 ? selected : ordered.slice(0, WARMUP_MIN_GROUPS);
-  }
-
-  function findNextTranslationGroupIndex(groups, currentTime) {
-    let bestIndex = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
-    groups.forEach(function (group, index) {
-      const score = getGroupDistanceScore(group, currentTime);
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = index;
-      }
-    });
-    return bestIndex;
-  }
-
-  function getGroupDistanceScore(group, currentTime) {
-    if (currentTime >= group.start && currentTime < group.end) return -1;
-    if (group.start >= currentTime) return group.start - currentTime;
-    return 100000 + (currentTime - group.end);
   }
 
   function isSameLanguage(sourceLanguage, targetLanguage) {

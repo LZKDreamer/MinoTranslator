@@ -7,5 +7,8 @@
   "embeddedNotSupported": { "message": "嵌入式视频暂不支持字幕翻译" },
   "networkOffline": { "message": "网络离线" },
   "noTranslationResult": { "message": "无翻译结果" },
-  "alreadyInTargetLang": { "message": "原文已是目标语言，无需翻译" }
+  "alreadyInTargetLang": { "message": "原文已是目标语言，无需翻译" },
+  "maxVideoTasks": { "message": "最多同时处理 3 个视频任务" },
+  "needOpenVideo": { "message": "需要先打开该视频页面以获取字幕" },
+  "translationComplete": { "message": "字幕翻译完成" }
 }

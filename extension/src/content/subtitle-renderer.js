@@ -22,6 +22,8 @@ class SubtitleRenderer {
     };
     this.rafId = null;
     this.currentCueIndex = -1;
+    this._lastRenderLog = 0;
+    this._lastRenderedIndex = -1;
   }
 
   /**
@@ -75,10 +77,17 @@ class SubtitleRenderer {
    * @param {Object} options - { cues, mode, fontSize, position, bgOpacity }
    */
   start(video, options) {
+    // 强制清理旧循环和旧数据，防止跨视频残留
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
     this.video = video;
     this.cues = options.cues || [];
     this.config = { ...this.config, ...options };
     this.currentCueIndex = -1;
+    this._lastRenderedIndex = -1;
+    this._lastRenderLog = 0;
 
     console.log('[SubtitleRenderer] start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
     debugLog('SubRenderer', 'start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
@@ -170,8 +179,13 @@ class SubtitleRenderer {
     const position = this.config.position;
     const wasHidden = !container.classList.contains('visible');
 
-    console.log('[SubtitleRenderer] renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
-    debugLog('SubRenderer', 'renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
+    // 限流日志：同 index 只打一次；不同 index 每 500ms 最多一次
+    if (index !== this._lastRenderedIndex || Date.now() - this._lastRenderLog > 500) {
+      console.log('[SubtitleRenderer] renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
+      debugLog('SubRenderer', 'renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
+      this._lastRenderLog = Date.now();
+    }
+    this._lastRenderedIndex = index;
 
     // 构建颜色值（滑块位置 → 颜色映射）
     const origColor = this.posToColor(this.config.originalTextColor);

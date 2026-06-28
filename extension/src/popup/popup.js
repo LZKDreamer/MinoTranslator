@@ -89,36 +89,26 @@
   }
 
   function getActionForStatus(status) {
-    if (status === 'preparing' || status === 'translating') {
-      return { label: t('popup.actionCancel', '取消'), intent: 'cancel', className: 'danger' };
+    if (status === STATUS.PREPARING || status === STATUS.TRANSLATING) {
+      return { label: t('popup.actionCancel'), intent: 'cancel', className: 'danger' };
     }
-    if (status === 'failed') {
-      return { label: t('popup.actionRetry', '重试'), intent: 'start', className: '' };
+    if (status === STATUS.FAILED) {
+      return { label: t('popup.actionRetry'), intent: 'start', className: '' };
     }
-    if (status === 'completed') {
-      return { label: t('popup.actionOpen', '打开'), intent: 'open', className: 'primary' };
+    if (status === STATUS.COMPLETED) {
+      return { label: t('popup.actionOpen'), intent: 'open', className: 'primary' };
     }
-    return { label: t('popup.actionTranslate', '翻译'), intent: 'start', className: 'primary' };
+    return { label: t('popup.actionTranslate'), intent: 'start', className: 'primary' };
   }
 
   function getStatusLabel(item) {
-    if (item.status === 'translating') {
-      const percent = Math.max(0, Math.min(100, Number(item.progress || 0)));
-      if (percent === 0 && item.estimatedSeconds) {
-        return formatEstimatedTime(item.estimatedSeconds);
-      }
-      return t('popup.statusTranslating', '翻译中') + ' ' + percent + '%';
-    }
-    const statusKey = 'popup.status' + item.status.charAt(0).toUpperCase() + item.status.slice(1);
-    return t(statusKey, item.status);
-  }
-
-  function formatEstimatedTime(seconds) {
-    if (seconds < 60) {
-      return t('popup.estimatedSeconds', '预计{0}秒').replace('{0}', Math.max(1, seconds));
-    }
-    var minutes = Math.ceil(seconds / 60);
-    return t('popup.estimatedMinutes', '预计{0}分钟').replace('{0}', minutes);
+    if (item.status === STATUS.TRANSLATING) return t('popup.statusTranslating');
+    if (item.status === STATUS.PREPARING) return t('popup.statusPreparing');
+    if (item.status === STATUS.FAILED) return t('popup.statusFailed');
+    if (item.status === STATUS.COMPLETED) return t('popup.statusCompleted');
+    if (item.status === STATUS.CANCELED) return t('popup.statusCanceled');
+    if (item.status === STATUS.AVAILABLE) return t('popup.statusAvailable');
+    return '';
   }
 
   function setProgress($ring, percent, isIndeterminate) {
@@ -189,7 +179,7 @@
       $thumb.hidden = !item.thumbnailUrl;
       $title.textContent = item.title || item.videoId || 'YouTube ' + t('popup.statusAvailable', '视频');
       $status.textContent = getStatusLabel(item);
-      $status.classList.toggle('is-error', item.status === 'failed');
+      $status.classList.toggle('is-error', item.status === STATUS.FAILED);
 
       // 只有在按钮不在 pending 过渡态时才更新按钮文案/意图
       if ($button.dataset.intent !== 'pending') {
@@ -202,7 +192,7 @@
       $button.dataset.videoId = item.videoId;
       $button.dataset.tabId = item.tabId || '';
 
-      const isIndeterminate = item.status === 'translating' && (!item.progress || item.progress === 0);
+      const isIndeterminate = item.status === STATUS.TRANSLATING || item.status === STATUS.PREPARING;
       setProgress($ring, item.progress || 0, isIndeterminate);
 
       if (isNew) {
