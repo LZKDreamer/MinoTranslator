@@ -285,6 +285,12 @@ var TranslatePrompt = (function () {
 
     // === System Prompt ===
     var systemLines = [];
+    // 🔴 关键：放在最前面，任何语言对都适用
+    systemLines.push('CRITICAL — READ THIS FIRST:');
+    systemLines.push('- Your ONLY task is to translate. Output must be in ' + targetName + ' ONLY.');
+    systemLines.push('- NEVER output any ' + sourceName + ' text. NEVER mix languages in the output.');
+    systemLines.push('- If you output even one ' + sourceName + ' word, the entire response is a FAILURE.');
+    systemLines.push('');
     systemLines.push('You are a professional subtitle translator.');
     systemLines.push('Translate the following lines from ' + sourceName + ' to natural, colloquial ' + targetName + '.');
     systemLines.push('');
@@ -333,6 +339,7 @@ var TranslatePrompt = (function () {
 
     if (isBatch) {
       userParts.push('Translate these ' + opts.sentences.length + ' subtitle lines to natural ' + targetName + ':');
+      userParts.push('REMINDER: output ' + targetName + ' ONLY — NO ' + sourceName + ' text anywhere.');
       userParts.push('');
       opts.sentences.forEach(function (s, i) {
         userParts.push('[' + i + '] ' + s);

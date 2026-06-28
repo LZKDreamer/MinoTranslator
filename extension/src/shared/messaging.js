@@ -3,6 +3,16 @@
    所有 content script 通过此函数与 Service Worker 通信
    ═══════════════════════════════════════════════ */
 
+// ═══════════════════════════════════════════════
+// 字幕流水线调试日志开关
+// 设为 true 后，翻译完成时自动输出完整流水线日志并下载 .txt 文件：
+//   [Pipeline]  断句+清洗后的每句文本 + 时间区间
+//   [Translate] 原文 vs AI 译文逐句对照
+//   [Render]    实际渲染时的 videoTime vs cueRange 偏差
+// 用法：在 Console 中执行 window.SUBTITLE_PIPELINE_LOG = true，然后点翻译
+// ═══════════════════════════════════════════════
+window.SUBTITLE_PIPELINE_LOG = false;
+
 /**
  * 向 Service Worker 发送消息并等待响应
  * @param {Object} message - { type, ... }

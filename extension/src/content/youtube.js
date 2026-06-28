@@ -248,6 +248,37 @@
         // 翻译完成，确保所有译文到位
         videoEl.removeEventListener('seeking', onSeek);
         hasActiveTranslation = false;
+
+        // [Translate] 构建日志：原文 vs AI译文 逐句对比
+        var logParts = [];
+        if (subtitleData._pipelineLog) logParts.push(subtitleData._pipelineLog);
+        logParts.push('');
+        logParts.push('══════ [Translate] AI Translation Complete ══════');
+        for (var ti = 0; ti < cues.length; ti++) {
+          var tc = cues[ti];
+          logParts.push('[Translate] #' + ti + ' │ ' + tc.start.toFixed(3) + '→' + tc.end.toFixed(3) + ' │ ORIG: ' + tc.text + ' │ TRANS: ' + (tc.translated || '(empty)'));
+        }
+        logParts.push('══════ [Translate] END ══════');
+        var fullLog = logParts.join('\n');
+        if (window.SUBTITLE_PIPELINE_LOG === true) {
+          console.log(fullLog);
+
+          // 自动下载日志文件到本地
+          try {
+            var blob = new Blob([fullLog], { type: 'text/plain;charset=utf-8' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'subtitle-pipeline-log.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            console.log('[Pipeline] Log file downloaded: subtitle-pipeline-log.txt');
+          } catch (_downloadErr) {
+            console.warn('[Pipeline] Download failed:', _downloadErr);
+          }
+        }
+
         reportTask({ status: STATUS.COMPLETED, cues: cues });
       } catch (err) {
         videoEl.removeEventListener('seeking', onSeek);

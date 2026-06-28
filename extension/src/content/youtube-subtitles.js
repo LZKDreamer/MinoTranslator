@@ -68,6 +68,17 @@ async function fetchSubtitles(videoId) {
   // 过滤空句
   parsed.sentences = parsed.sentences.filter(function (s) { return s.text && s.text.length > 0; });
 
+  // [Pipeline] 日志：断句清洗后的完整输出（写到全局缓冲区）
+  var pipelineLines = [];
+  pipelineLines.push('══════ [Pipeline] Cleaned & Segmented Sentences (' + parsed.sentences.length + ' total) ══════');
+  for (var pi = 0; pi < parsed.sentences.length; pi++) {
+    var ps = parsed.sentences[pi];
+    pipelineLines.push('[Pipeline] #' + pi + ' │ ' + ps.start.toFixed(3) + ' → ' + ps.end.toFixed(3) + ' (' + (ps.end - ps.start).toFixed(1) + 's) │ ' + ps.text);
+  }
+  pipelineLines.push('══════ [Pipeline] END ══════');
+  parsed._pipelineLog = pipelineLines.join('\n');
+  if (window.SUBTITLE_PIPELINE_LOG === true) console.log(parsed._pipelineLog);
+
   debugLog('YT-Subs', 'fetchSubtitles done: ' + parsed.sentences.length + ' sentences, lang=' + language);
   return parsed;
 }
@@ -376,8 +387,9 @@ function parseJson3ToWords(json) {
       }
 
       // 非语音标记：方括号包裹的音效（如 [Music], [음악], [Applause]）
+      // 也匹配带 >> 前缀的（如 >> [음악], >> [music]）
       // 注意：不能仅凭 acAsrConf 缺失判断，Gemini 字幕所有 seg 都无此字段
-      var isNonSpeech = /^\[.*\]$/.test(text.trim());
+      var isNonSpeech = /^(>>\s*)?\[.*\]$/.test(text.trim());
       var isSpeakerChange = seg.isSpeakerChange === 1;
 
       words.push({
@@ -395,37 +407,100 @@ function parseJson3ToWords(json) {
 }
 
 /**
- * 本地断句：按标点切分 + 碎片合并
+ * 本地断句：按标点切分 + 说话人切换切分 + 时间间隔切分 + 碎片合并
  */
 function segmentSentences(words) {
   var cleanWords = [];
   for (var i = 0; i < words.length; i++) {
     var w = words[i];
-    if (w.lineBreak || w.nonSpeech) continue;
+    // P2: 先检查 speakerChange（即使 nonSpeech 也要切句）
+    if (w.lineBreak) continue;
+    if (w.nonSpeech) {
+      // 如果 nonSpeech 标记了说话人切换，在 cleanWords 中插入一个空标记来强制切句
+      if (w.speakerChange && cleanWords.length > 0) {
+        cleanWords.push({ text: '', start: w.start, end: w.end, speakerChange: true, _ghost: true });
+      }
+      continue;
+    }
     var t = (w.text || '').replace(/^>>\s*/, '').trim();
     if (!t) continue;
-    cleanWords.push({ text: t, start: w.start, end: w.end });
+    cleanWords.push({ text: t, start: w.start, end: w.end, speakerChange: w.speakerChange });
   }
+
+  // 清理空 ghost 标记：如果 ghost 后面紧跟着 speakerChange，合并为一个
+  var realWords = [];
+  for (var ri = 0; ri < cleanWords.length; ri++) {
+    var rw = cleanWords[ri];
+    if (rw._ghost) {
+      if (realWords.length > 0 && ri + 1 < cleanWords.length) {
+        // ghost 标记已完成了切句使命，跳过即可
+      }
+      continue;
+    }
+    realWords.push(rw);
+  }
+  cleanWords = realWords;
 
   if (cleanWords.length === 0) return [];
 
+  var SENTENCE_GAP_MS = 2000; // 2秒以上间隔强制切句
+
   var segments = [];
   var current = [];
+  var prevEndMs = 0;
+  var hardBreakNext = false; // 上一个push是否因硬切句（说话人切换/时间间隔）
+
   for (var j = 0; j < cleanWords.length; j++) {
-    current.push(cleanWords[j]);
-    if (SENTENCE_END_RE.test(cleanWords[j].text)) {
+    var cw = cleanWords[j];
+
+    // ghost 词：仅用于触发切句，自身不加入 current
+    if (cw.text === '' && cw.speakerChange) {
+      if (current.length > 0) {
+        current._hardBreakAfter = true;
+        segments.push(current);
+        current = [];
+        hardBreakNext = true;
+      }
+      continue;
+    }
+
+    // 说话人切换：强制切句
+    if (cw.speakerChange && current.length > 0) {
+      current._hardBreakAfter = true;
       segments.push(current);
       current = [];
+      hardBreakNext = true;
+    }
+    // 时间间隔过大：强制切句（跳过首词）
+    else if (current.length > 0 && (cw.start - prevEndMs) > SENTENCE_GAP_MS) {
+      current._hardBreakAfter = true;
+      segments.push(current);
+      current = [];
+      hardBreakNext = true;
+    }
+
+    current.push(cw);
+    prevEndMs = cw.end;
+
+    // 句末标点切句
+    if (SENTENCE_END_RE.test(cw.text)) {
+      if (hardBreakNext) current._hardBreakAfter = true;
+      segments.push(current);
+      current = [];
+      hardBreakNext = false;
     }
   }
-  if (current.length > 0) segments.push(current);
+  if (current.length > 0) {
+    if (hardBreakNext) current._hardBreakAfter = true;
+    segments.push(current);
+  }
 
   var merged = [];
   for (var k = 0; k < segments.length; k++) {
     var seg = segments[k];
     var lastText = seg[seg.length - 1].text;
     var endsWithSentEnd = SENTENCE_END_RE.test(lastText);
-    if (!endsWithSentEnd && seg.length <= FRAGMENT_MERGE_MAX_WORDS && k + 1 < segments.length) {
+    if (!endsWithSentEnd && seg.length <= FRAGMENT_MERGE_MAX_WORDS && k + 1 < segments.length && !seg._hardBreakAfter) {
       segments[k + 1] = seg.concat(segments[k + 1]);
     } else {
       merged.push(seg);
@@ -434,9 +509,9 @@ function segmentSentences(words) {
 
   var result = [];
   for (var m = 0; m < merged.length; m++) {
-    // 过短句合并——但完整句（有标点结尾）不合并
+    // 过短句合并——但完整句（有标点结尾）或硬切句不合并
     var isComplete = merged[m].length > 0 && SENTENCE_END_RE.test(merged[m][merged[m].length - 1].text);
-    if (merged[m].length <= TINY_SENTENCE_MAX_WORDS && !isComplete && m + 1 < merged.length) {
+    if (merged[m].length <= TINY_SENTENCE_MAX_WORDS && !isComplete && m + 1 < merged.length && !merged[m]._hardBreakAfter) {
       merged[m + 1] = merged[m].concat(merged[m + 1]);
     } else {
       result.push(merged[m]);
@@ -444,19 +519,119 @@ function segmentSentences(words) {
   }
 
   var sentences = [];
+  var MAX_SENTENCE_DURATION_SEC = 12.0; // P1: 8→12s，减少碎片
+  var MIN_WORDS_TO_SPLIT = 6;            // P1: <6词的句子不切分
+
+  // P0: 先标记孤立碎片（前后间隔都>5s 且 <4词 且无句末标点 = ASR幻觉垃圾）
+  var SPARSE_GAP_MS = 5000;
+  var MAX_SPARSE_WORDS = 3;
   for (var n = 0; n < result.length; n++) {
     var sent = result[n];
+    if (sent.length === 0 || sent.length > MAX_SPARSE_WORDS) continue;
+    var hasSentenceEnd = false;
+    for (var pe = 0; pe < sent.length; pe++) {
+      if (SENTENCE_END_RE.test(sent[pe].text)) { hasSentenceEnd = true; break; }
+    }
+    if (hasSentenceEnd) continue; // 有标点的完整句保留
+    var gapBefore = Infinity, gapAfter = Infinity;
+    if (n > 0) {
+      var prevSent = result[n - 1];
+      gapBefore = sent[0].start - prevSent[prevSent.length - 1].end;
+    }
+    if (n + 1 < result.length) {
+      var nextSent = result[n + 1];
+      gapAfter = nextSent[0].start - sent[sent.length - 1].end;
+    }
+    if (gapBefore > SPARSE_GAP_MS && gapAfter > SPARSE_GAP_MS) {
+      sent._sparseGarbage = true;
+    }
+  }
+
+  for (var n = 0; n < result.length; n++) {
+    var sent = result[n];
+    if (sent._sparseGarbage) continue; // P0: 丢弃ASR幻觉碎片
     if (sent.length === 0) continue;
     var textParts = [];
     for (var p = 0; p < sent.length; p++) textParts.push(sent[p].text);
     var fullText = textParts.join(' ').replace(/\s+/g, ' ').trim();
     if (!fullText) continue;
+
+    var startSec = sent[0].start / 1000.0;
+    var endSec = sent[sent.length - 1].end / 1000.0;
+    var duration = endSec - startSec;
+
+    if (duration > MAX_SENTENCE_DURATION_SEC && sent.length >= MIN_WORDS_TO_SPLIT) {
+      // 找句子内最大的词间间隔，在该处切分
+      var bestSplit = -1;
+      var bestGap = 0;
+      for (var q = 0; q < sent.length - 1; q++) {
+        var gapMs = sent[q + 1].start - sent[q].end;
+        if (gapMs > bestGap) { bestGap = gapMs; bestSplit = q; }
+      }
+      // 如果有>=80ms的间隔，在最大间隔处切分
+      // 如果没有显著间隔（连续说话），按词数对半切分
+      if (bestGap >= 80) {
+        // split at bestGap position
+      } else {
+        bestSplit = Math.floor(sent.length / 2) - 1;
+      }
+      if (bestSplit > 0 && bestSplit < sent.length - 1) {
+        var leftSent = sent.slice(0, bestSplit + 1);
+        var rightSent = sent.slice(bestSplit + 1);
+        var leftTextParts = []; for (var lp = 0; lp < leftSent.length; lp++) leftTextParts.push(leftSent[lp].text);
+        var leftFull = leftTextParts.join(' ').replace(/\s+/g, ' ').trim();
+        if (leftFull) {
+          sentences.push({
+            start: leftSent[0].start / 1000.0,
+            end: leftSent[leftSent.length - 1].end / 1000.0,
+            text: leftFull,
+          });
+        }
+        result.splice(n + 1, 0, rightSent);
+        continue;
+      }
+    }
+
     sentences.push({
-      start: sent[0].start / 1000.0,
-      end: sent[sent.length - 1].end / 1000.0,
+      start: startSec,
+      end: endSec,
       text: fullText,
     });
   }
+
+  // 后处理：重叠句子截断 — 当前句的 end 不能超过下一句的 start + 300ms 缓冲
+  // 解决「字幕还显示上句，音频已经在说下句」的滞后问题，同时保留 300ms 自然过渡
+  var OVERLAP_BUFFER_SEC = 0.3;
+  for (var ot = 0; ot < sentences.length - 1; ot++) {
+    if (sentences[ot + 1].start + OVERLAP_BUFFER_SEC < sentences[ot].end) {
+      sentences[ot].end = sentences[ot + 1].start + OVERLAP_BUFFER_SEC;
+    }
+  }
+
+  // 后处理：跨语言 ASR 幻觉检测 — 非源语言的语音被 ASR 音译成重复短句
+  // 规则：同一文本在 30s 窗口内出现 ≥4 次且句子 ≤4 词 → 整组丢弃
+  var REPETITION_WINDOW_SEC = 30;
+  var REPETITION_MIN_COUNT = 4;
+  var REPETITION_MAX_WORDS = 4;
+  for (var ri = 0; ri < sentences.length; ri++) {
+    if (sentences[ri]._repetitionGarbage) continue;
+    var rText = sentences[ri].text;
+    var rWords = rText.split(/\s+/).length;
+    if (rWords > REPETITION_MAX_WORDS) continue;
+    var group = [ri];
+    for (var rj = ri + 1; rj < sentences.length; rj++) {
+      if (sentences[rj]._repetitionGarbage) continue;
+      if (sentences[rj].start - sentences[ri].start > REPETITION_WINDOW_SEC) break;
+      if (sentences[rj].text === rText) group.push(rj);
+    }
+    if (group.length >= REPETITION_MIN_COUNT) {
+      for (var gk = 0; gk < group.length; gk++) {
+        sentences[group[gk]]._repetitionGarbage = true;
+      }
+      ri += group.length - 1;
+    }
+  }
+  sentences = sentences.filter(function (s) { return !s._repetitionGarbage; });
 
   return sentences;
 }
@@ -549,14 +724,24 @@ async function batchTranslateSentences(sentences, settings, getCurrentTime, onPr
     return results;
   }
 
-  // 构建批次
+  // 构建批次 — 自适应尺寸：长句子用更小批次避免 AI 输出超 max_tokens
   var allBatches = [];
-  for (var bi = 0; bi < sentences.length; bi += BATCH_SIZE) {
+  var batchSize = BATCH_SIZE;
+  // 计算平均句长，如果 >120 字符/句，按比例缩小批次
+  var totalChars = 0;
+  for (var ci2 = 0; ci2 < sentences.length; ci2++) totalChars += sentences[ci2].text.length;
+  var avgChars = sentences.length > 0 ? totalChars / sentences.length : 0;
+  if (avgChars > 150) batchSize = 15;
+  else if (avgChars > 120) batchSize = 25;
+  else if (avgChars > 90) batchSize = 30;
+  debugLog('YT-Subs', 'batchTranslateSentences: avgChars=' + avgChars.toFixed(0) + ' → batchSize=' + batchSize);
+
+  for (var bi = 0; bi < sentences.length; bi += batchSize) {
     allBatches.push({
       id: allBatches.length,
       startIndex: bi,
-      sentences: sentences.slice(bi, bi + BATCH_SIZE),
-      status: 'pending',       // pending | inFlight | completed | failed
+      sentences: sentences.slice(bi, bi + batchSize),
+      status: 'pending',       // pending | inFlight | completed | failed | split
       translations: null,
       retries: 0,
     });
@@ -677,9 +862,30 @@ async function batchTranslateSentences(sentences, settings, getCurrentTime, onPr
         var isFatal = isNonRetryableError(err);
         batch.retries++;
 
-        if (isFatal || batch.retries > TRANSLATION_MAX_RETRIES) {
+        if (isFatal) {
           batch.status = 'failed';
-          debugLog('YT-Subs', 'translateOneBatch FAILED: batch=' + batch.id + ' retries=' + batch.retries + ' fatal=' + isFatal + ' ' + err.message);
+          debugLog('YT-Subs', 'translateOneBatch FAILED (fatal): batch=' + batch.id + ' ' + err.message);
+        } else if (batch.retries > TRANSLATION_MAX_RETRIES) {
+          // 重试耗尽 → 尝试拆分为更小批次
+          if (batch.sentences.length > 10) {
+            var subSize = Math.ceil(batch.sentences.length / 2);
+            var sub1 = batch.sentences.slice(0, subSize);
+            var sub2 = batch.sentences.slice(subSize);
+            allBatches.push({
+              id: allBatches.length, startIndex: batch.startIndex,
+              sentences: sub1, status: 'pending', translations: null, retries: 0,
+            });
+            allBatches.push({
+              id: allBatches.length, startIndex: batch.startIndex + subSize,
+              sentences: sub2, status: 'pending', translations: null, retries: 0,
+            });
+            batch.status = 'split';
+            debugLog('YT-Subs', 'translateOneBatch SPLIT: batch=' + batch.id + ' → sub-batches ' + (allBatches.length-2) + '+' + (allBatches.length-1) + ' sizes=' + sub1.length + '+' + sub2.length);
+          } else {
+            // 已经很小了，放弃
+            batch.status = 'failed';
+            debugLog('YT-Subs', 'translateOneBatch FAILED: batch=' + batch.id + ' retries=' + batch.retries + ' ' + err.message);
+          }
         } else {
           batch.status = 'pending'; // 回队重试
           debugLog('YT-Subs', 'translateOneBatch retryable: batch=' + batch.id + ' retries=' + batch.retries + ' ' + err.message);
@@ -752,8 +958,8 @@ function isNonRetryableError(err) {
   if (msg.indexOf('api error 401') !== -1 || msg.indexOf('api error 403') !== -1) return true;
   // 模型未找到
   if (msg.indexOf('api error 404') !== -1) return true;
-  // JSON 解析失败（AI 格式问题，重试也没用）
-  if (msg.indexOf('not an array') !== -1 || msg.indexOf('translation response') !== -1) return true;
+  // JSON 解析失败 — 改用修复逻辑后改为可重试（可能是 max_tokens 截断，拆小批后能成功）
+  // 旧逻辑: if (msg.indexOf('not an array') !== -1 || msg.indexOf('translation response') !== -1) return true;
   return false;
 }
 
@@ -898,7 +1104,50 @@ function parseTranslationArray(text, expectedLength) {
     if (typeof parsed === 'string') { parsed = [parsed]; }
     else if (!Array.isArray(parsed) && rawText) { parsed = [rawText]; }
   }
+  // 容错：AI 输出被 max_tokens 截断，JSON 数组不完整
+  // 尝试修复常见截断模式：[..., "partial → 补全为 [..., "partial"]
+  if (!parsed || !Array.isArray(parsed)) {
+    var repaired = tryRepairTruncatedJson(rawText);
+    if (repaired) parsed = repaired;
+  }
   return normalizeTranslationArray(parsed, expectedLength);
+}
+
+/**
+ * 尝试修复被截断的 JSON 数组（AI 输出超出 max_tokens 时常见）
+ * 模式1: ["a","b","c  → 补全后重解析
+ * 模式2: ["a","b","c"]  额外文本  → 提取完整数组
+ */
+function tryRepairTruncatedJson(rawText) {
+  if (!rawText || rawText.length < 3) return null;
+  // 确保以 [ 开头
+  if (rawText[0] !== '[') return null;
+  // 找最后一个完整的字符串元素（以 ", 或 "] 结尾）
+  // 策略：从末尾向前找最后一个 "], "], 或 "]
+  var lastComplete = -1;
+  // 找最后一个 " 后跟 ], 或 ] 的位置
+  for (var i = rawText.length - 1; i >= 1; i--) {
+    if (rawText[i] === '"') {
+      // 检查这个 " 后面是 ], 还是 ]
+      var after = rawText.slice(i + 1).trim();
+      if (after === ']' || after === '],') {
+        lastComplete = i;
+        break;
+      }
+    }
+  }
+  if (lastComplete === -1) return null;
+  // 尝试补全：从开头到最后一个完整元素，加上 ]
+  var repaired = rawText.slice(0, lastComplete + 1) + ']';
+  try { var arr = JSON.parse(repaired); if (Array.isArray(arr)) return arr; } catch (_e) {}
+  // 再尝试：如果上述失败，可能是中间有截断的字符串未闭合
+  // 找最后一个完整的 "string", 对
+  var lastComma = rawText.lastIndexOf('",');
+  if (lastComma > 0) {
+    repaired = rawText.slice(0, lastComma + 2) + ']';
+    try { var arr2 = JSON.parse(repaired); if (Array.isArray(arr2)) return arr2; } catch (_e) {}
+  }
+  return null;
 }
 
 function storageLocalSet(key, value) {

@@ -22,7 +22,6 @@ class SubtitleRenderer {
     };
     this.rafId = null;
     this.currentCueIndex = -1;
-    this._lastRenderLog = 0;
     this._lastRenderedIndex = -1;
   }
 
@@ -87,7 +86,6 @@ class SubtitleRenderer {
     this.config = { ...this.config, ...options };
     this.currentCueIndex = -1;
     this._lastRenderedIndex = -1;
-    this._lastRenderLog = 0;
 
     console.log('[SubtitleRenderer] start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
     debugLog('SubRenderer', 'start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
@@ -138,20 +136,22 @@ class SubtitleRenderer {
 
     let low = 0;
     let high = this.cues.length - 1;
+    let found = -1;
 
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
       const cue = this.cues[mid];
 
       if (effectiveTime >= cue.start && effectiveTime < cue.end) {
-        return mid;
+        found = mid;         // 记录匹配，继续向左搜索第一个
+        high = mid - 1;
       } else if (effectiveTime < cue.start) {
         high = mid - 1;
       } else {
         low = mid + 1;
       }
     }
-    return -1;
+    return found;
   }
 
   renderCue(index) {
@@ -179,11 +179,10 @@ class SubtitleRenderer {
     const position = this.config.position;
     const wasHidden = !container.classList.contains('visible');
 
-    // 限流日志：同 index 只打一次；不同 index 每 500ms 最多一次
-    if (index !== this._lastRenderedIndex || Date.now() - this._lastRenderLog > 500) {
-      console.log('[SubtitleRenderer] renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
-      debugLog('SubRenderer', 'renderCue: index=' + index + ' time=' + (this.video ? this.video.currentTime : '?') + ' text=' + cue.text.slice(0, 40) + ' translated=' + (cue.translated ? cue.translated.slice(0, 40) : 'none'));
-      this._lastRenderLog = Date.now();
+    // [Render] 日志：每次实际渲染都输出（含时间偏差），仅 DEBUG 模式
+    if (index !== this._lastRenderedIndex && window.SUBTITLE_PIPELINE_LOG === true) {
+      var delta = this.video ? (this.video.currentTime - cue.start).toFixed(3) : '?';
+      console.log('[Render] cue=' + index + ' │ videoTime=' + (this.video ? this.video.currentTime.toFixed(3) : '?') + ' │ cueRange=' + cue.start.toFixed(3) + '→' + cue.end.toFixed(3) + ' │ delta=' + delta + ' │ ORIG=' + cue.text + ' │ TRANS=' + (cue.translated || '(none)'));
     }
     this._lastRenderedIndex = index;
 
