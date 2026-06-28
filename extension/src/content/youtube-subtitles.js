@@ -507,23 +507,29 @@ function cleanCueText(text, options) {
 }
 
 // ═══════════════════════════════════════════════
-// 批量翻译（新方案：本地已断句，AI 只翻译）
+// 优先级并发翻译（播放位优先 + 2路并发 + 拖动重排）
 // ═══════════════════════════════════════════════
 
 // 断句合并阈值
-const FRAGMENT_MERGE_MAX_WORDS = 3;     // 逗号结尾片段≤此值合并到下一句
-const TINY_SENTENCE_MAX_WORDS = 2;      // 最终≤此值的句子合并
-const MAX_TRANSLATION_TOKENS = 65536;    // AI 最大输出 token 数
-const TRANSLATION_TEMPERATURE = 0.3;     // 翻译 temperature
+const FRAGMENT_MERGE_MAX_WORDS = 3;
+const TINY_SENTENCE_MAX_WORDS = 2;
+const MAX_TRANSLATION_TOKENS = 65536;
+const TRANSLATION_TEMPERATURE = 0.3;
 
 const BATCH_SIZE = 40;
-const BATCH_CONTEXT_SIZE = 5;  // 每批传给下一批的上下文句子数
+const BATCH_CONTEXT_SIZE = 5;
+const MAX_CONCURRENT = 2;
 
 /**
- * 批量翻译已断句的字幕
- * 短视频（≤40句）：单批翻译；长视频：分批串行，每批带上一批最后 5 句译文作上下文
+ * 批量翻译：播放位优先、2路并发、批次独立失败
+ * @param {Array} sentences - 已断句数组 [{start, end, text}]
+ * @param {Object} settings - 翻译配置
+ * @param {Function} getCurrentTime - 返回当前播放秒数（用于优先级）
+ * @param {Function} onProgress - 每批完成回调 (resultsByIndex, batchMeta)
+ * @param {AbortSignal} signal
+ * @returns {Promise<string[]>} 译文数组
  */
-async function batchTranslateSentences(sentences, settings, onProgress, signal) {
+async function batchTranslateSentences(sentences, settings, getCurrentTime, onProgress, signal) {
   var modelKey = settings.defaultModel || 'agnes-ai';
   var models = settings.models || {};
   var model = models[modelKey];
@@ -532,81 +538,226 @@ async function batchTranslateSentences(sentences, settings, onProgress, signal) 
     throw new Error(getSubtitleMessage('noApiKey', '请先在设置中配置 API Key'));
   }
 
-  var targetLang = settings.targetLanguage || 'zh-CN';
-
-  // 缓存检查
-  var allCached = true;
-  var cachedResults = [];
-  for (var i = 0; i < sentences.length; i++) {
-    var cacheKey = getSubtitleTranslationCacheKey(sentences[i].text, {
-      videoId: settings.videoId, sourceLanguage: settings.sourceLanguage,
-      targetLanguage: targetLang, modelKey: modelKey, modelId: model.modelId,
-    });
-    var cached = await getCachedSubtitleTranslation(cacheKey);
-    if (cached && typeof cached === 'string') { cachedResults[i] = cached; }
-    else { cachedResults[i] = null; allCached = false; }
-  }
-  if (allCached) {
-    debugLog('YT-Subs', 'batchTranslateSentences: all ' + sentences.length + ' sentences cached');
-    return cachedResults;
-  }
-
-  // 单批（短视频）
+  // 短视频：单批直接翻
   if (sentences.length <= BATCH_SIZE) {
-    debugLog('YT-Subs', 'batchTranslateSentences: single batch, ' + sentences.length + ' sentences');
-    var results = await translateOneBatch(sentences, settings, model, targetLang, null, signal);
-    if (onProgress) onProgress({ completedSentences: sentences.length, totalSentences: sentences.length, currentBatch: 1, totalBatches: 1 });
+    var results = await translateOneBatch(sentences, settings, model, null, signal);
+    if (onProgress) onProgress(results, { batchIndex: 0, totalBatches: 1 });
     return results;
   }
 
-  // 分批串行（长视频）
-  var batches = [];
+  // 构建批次
+  var allBatches = [];
   for (var bi = 0; bi < sentences.length; bi += BATCH_SIZE) {
-    batches.push({ start: bi, sentences: sentences.slice(bi, bi + BATCH_SIZE) });
+    allBatches.push({
+      id: allBatches.length,
+      startIndex: bi,
+      sentences: sentences.slice(bi, bi + BATCH_SIZE),
+      status: 'pending',       // pending | inFlight | completed | failed
+      translations: null,
+      retries: 0,
+    });
   }
-  debugLog('YT-Subs', 'batchTranslateSentences: ' + sentences.length + ' sentences → ' + batches.length + ' batches');
 
+  var apiUrl = model.apiUrl.replace(/\/+$/, '') + '/chat/completions';
+  var targetLang = settings.targetLanguage || 'zh-CN';
   var allResults = new Array(sentences.length);
-  var prevContexts = null;
+  var completedBatches = new Map();  // batchId → { texts, translations }
 
-  for (var b = 0; b < batches.length; b++) {
-    if (signal && signal.aborted) throw new Error('Translation cancelled');
+  // 按距离当前播放位的远近排序
+  function sortByPriority(batches) {
+    var ct = getCurrentTime ? getCurrentTime() : 0;
+    batches.sort(function (a, b) {
+      var dA = distanceToPlayback(a, ct);
+      var dB = distanceToPlayback(b, ct);
+      return dA - dB;
+    });
+  }
 
-    var batch = batches[b];
-    var batchResults = await translateOneBatch(batch.sentences, settings, model, targetLang, prevContexts, signal);
+  function distanceToPlayback(batch, currentTime) {
+    var first = batch.sentences[0];
+    var last = batch.sentences[batch.sentences.length - 1];
+    var batchMid = (first.start + last.end) / 2;
+    return Math.abs(batchMid - currentTime);
+  }
 
-    for (var ri = 0; ri < batchResults.length; ri++) allResults[batch.start + ri] = batchResults[ri];
+  sortByPriority(allBatches);
 
-    for (var ci = 0; ci < batch.sentences.length; ci++) {
-      var ck = getSubtitleTranslationCacheKey(batch.sentences[ci].text, {
+  // 查缓存，跳过已译句子
+  for (var ci = 0; ci < allBatches.length; ci++) {
+    var batch = allBatches[ci];
+    var allCached = true;
+    var cached = [];
+    for (var si = 0; si < batch.sentences.length; si++) {
+      var cacheKey = getSubtitleTranslationCacheKey(batch.sentences[si].text, {
         videoId: settings.videoId, sourceLanguage: settings.sourceLanguage,
         targetLanguage: targetLang, modelKey: modelKey, modelId: model.modelId,
       });
-      await rememberSubtitleTranslation(ck, batchResults[ci] || '');
-    }
-
-    if (b < batches.length - 1) {
-      var ctxStart = Math.max(0, batch.sentences.length - BATCH_CONTEXT_SIZE);
-      prevContexts = [];
-      for (var ctx = ctxStart; ctx < batch.sentences.length; ctx++) {
-        prevContexts.push({ index: batch.start + ctx, original: batch.sentences[ctx].text, translated: batchResults[ctx] || '' });
+      var cachedVal = await getCachedSubtitleTranslation(cacheKey);
+      if (cachedVal && typeof cachedVal === 'string') {
+        cached[si] = cachedVal;
+      } else {
+        cached[si] = null;
+        allCached = false;
       }
     }
-
-    if (onProgress) {
-      onProgress({ completedSentences: batch.start + batchResults.length, totalSentences: sentences.length, currentBatch: b + 1, totalBatches: batches.length });
+    if (allCached) {
+      batch.translations = cached;
+      batch.status = 'completed';
+      completedBatches.set(batch.id, { texts: batch.sentences.map(function (s) { return s.text; }), translations: cached });
+      for (var ri = 0; ri < cached.length; ri++) {
+        allResults[batch.startIndex + ri] = cached[ri];
+      }
     }
-
-    if (b < batches.length - 1) await delay(500);
   }
+
+  debugLog('YT-Subs', 'batchTranslateSentences: ' + sentences.length + ' sentences → ' + allBatches.length + ' batches, ' + MAX_CONCURRENT + ' concurrent');
+
+  // 2路并发 worker
+  var inFlight = 0;
+  var waiters = [];
+
+  function releaseWorker() {
+    inFlight--;
+    var next = waiters.shift();
+    if (next) next();
+  }
+
+  async function acquireWorker() {
+    while (inFlight >= MAX_CONCURRENT) {
+      await new Promise(function (r) { waiters.push(r); });
+    }
+    inFlight++;
+  }
+
+  async function runWorker(workerId) {
+    while (true) {
+      if (signal && signal.aborted) break;
+
+      // 选优先级最高的待处理批次
+      var pendingBatches = allBatches.filter(function (b) { return b.status === 'pending'; });
+      sortByPriority(pendingBatches);
+      if (pendingBatches.length === 0) break;
+
+      var batch = pendingBatches[0];
+      batch.status = 'inFlight';
+
+      // 找已完成批次中时间最近的作上下文
+      var prevContexts = findNearestContext(batch, completedBatches, allBatches);
+
+      try {
+        await acquireWorker();
+        var startedAt = Date.now();
+        var batchTranslations = await translateOneBatch(batch.sentences, settings, model, prevContexts, signal);
+        debugLog('YT-Subs', 'translateOneBatch: ' + (Date.now() - startedAt) + 'ms, ' + batch.sentences.length + ' sentences, worker=' + workerId);
+
+        batch.translations = batchTranslations;
+        batch.status = 'completed';
+        completedBatches.set(batch.id, {
+          texts: batch.sentences.map(function (s) { return s.text; }),
+          translations: batchTranslations,
+        });
+
+        // 写入结果数组 + 缓存
+        for (var wi = 0; wi < batchTranslations.length; wi++) {
+          allResults[batch.startIndex + wi] = batchTranslations[wi];
+          var ck = getSubtitleTranslationCacheKey(batch.sentences[wi].text, {
+            videoId: settings.videoId, sourceLanguage: settings.sourceLanguage,
+            targetLanguage: targetLang, modelKey: modelKey, modelId: model.modelId,
+          });
+          await rememberSubtitleTranslation(ck, batchTranslations[wi] || '');
+        }
+      } catch (err) {
+        if (signal && signal.aborted) { releaseWorker(); break; }
+
+        // 错误类型区分
+        var isFatal = isNonRetryableError(err);
+        batch.retries++;
+
+        if (isFatal || batch.retries > TRANSLATION_MAX_RETRIES) {
+          batch.status = 'failed';
+          debugLog('YT-Subs', 'translateOneBatch FAILED: batch=' + batch.id + ' retries=' + batch.retries + ' fatal=' + isFatal + ' ' + err.message);
+        } else {
+          batch.status = 'pending'; // 回队重试
+          debugLog('YT-Subs', 'translateOneBatch retryable: batch=' + batch.id + ' retries=' + batch.retries + ' ' + err.message);
+        }
+      } finally {
+        releaseWorker();
+      }
+
+      // 每批完成回调
+      if (onProgress && !(signal && signal.aborted)) {
+        onProgress(allResults.slice(), {
+          completedCount: allBatches.filter(function (b) { return b.status === 'completed'; }).length,
+          failedCount: allBatches.filter(function (b) { return b.status === 'failed'; }).length,
+          totalBatches: allBatches.length,
+        });
+      }
+
+      if (batch.status === 'failed') {
+        // 不阻断继续处理其他批次
+      }
+    }
+  }
+
+  // 启动并发 workers
+  var workers = [];
+  for (var w = 0; w < MAX_CONCURRENT; w++) {
+    workers.push(runWorker(w));
+  }
+  await Promise.all(workers);
 
   return allResults;
 }
 
 /**
+ * 找已完成批次中时间距离最近的，提取最后 N 句译文作上下文
+ */
+function findNearestContext(batch, completedBatches, allBatches) {
+  if (completedBatches.size === 0) return null;
+
+  var batchMid = (batch.sentences[0].start + batch.sentences[batch.sentences.length - 1].end) / 2;
+  var nearest = null;
+  var minDist = Infinity;
+
+  completedBatches.forEach(function (ctx, batchId) {
+    // 从 allBatches 找到这个批次的句子时间
+    var refBatch = allBatches[batchId];
+    if (!refBatch) return;
+    var refMid = (refBatch.sentences[0].start + refBatch.sentences[refBatch.sentences.length - 1].end) / 2;
+    var dist = Math.abs(refMid - batchMid);
+    if (dist < minDist) { minDist = dist; nearest = ctx; }
+  });
+
+  if (!nearest || !nearest.texts) return null;
+
+  var ctxLen = Math.min(BATCH_CONTEXT_SIZE, nearest.texts.length);
+  var ctxStart = nearest.texts.length - ctxLen;
+  var result = [];
+  for (var i = ctxStart; i < nearest.texts.length; i++) {
+    result.push({ index: -1, original: nearest.texts[i], translated: nearest.translations[i] || '' });
+  }
+  return result;
+}
+
+/**
+ * 不可重试的错误
+ */
+function isNonRetryableError(err) {
+  var msg = (err.message || '').toLowerCase();
+  // 401/403 认证授权错误
+  if (msg.indexOf('api error 401') !== -1 || msg.indexOf('api error 403') !== -1) return true;
+  // 模型未找到
+  if (msg.indexOf('api error 404') !== -1) return true;
+  // JSON 解析失败（AI 格式问题，重试也没用）
+  if (msg.indexOf('not an array') !== -1 || msg.indexOf('translation response') !== -1) return true;
+  return false;
+}
+
+/**
  * 翻译单批句子
  */
-async function translateOneBatch(sentences, settings, model, targetLang, prevContexts, signal) {
+async function translateOneBatch(sentences, settings, model, prevContexts, signal) {
+  var targetLang = settings.targetLanguage || 'zh-CN';
   var apiUrl = model.apiUrl.replace(/\/+$/, '') + '/chat/completions';
 
   var prompt = TranslatePrompt.buildBatchTranslatePrompt({
@@ -617,14 +768,14 @@ async function translateOneBatch(sentences, settings, model, targetLang, prevCon
     prevContexts: prevContexts,
   });
 
-  var startedAt = Date.now();
   var lastError;
 
   for (var attempt = 0; attempt <= TRANSLATION_MAX_RETRIES; attempt++) {
     try {
       if (attempt > 0) {
-        debugLog('YT-Subs', 'translateOneBatch retry ' + attempt + '/' + TRANSLATION_MAX_RETRIES);
-        await delay(TRANSLATION_RETRY_BASE_DELAY_MS * attempt);
+        var delayMs = TRANSLATION_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        debugLog('YT-Subs', 'translateOneBatch retry ' + attempt + '/' + TRANSLATION_MAX_RETRIES + ' delay=' + delayMs + 'ms');
+        await delay(delayMs);
       }
 
       var response = await fetchWithTimeout(apiUrl, {
@@ -642,20 +793,31 @@ async function translateOneBatch(sentences, settings, model, targetLang, prevCon
         signal: signal,
       }, TRANSLATION_REQUEST_TIMEOUT_MS);
 
-      if (!response.ok) {
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
         var errTxt = await response.text().catch(function () { return ''; });
         throw new Error('API error ' + response.status + ': ' + errTxt.slice(0, 200));
       }
 
+      if (response.status === 429) {
+        var retryAfter = parseInt(response.headers.get('Retry-After') || '5', 10);
+        debugLog('YT-Subs', 'translateOneBatch 429, waiting ' + retryAfter + 's');
+        await delay(retryAfter * 1000);
+        throw new Error('API rate limited (429)');
+      }
+
+      if (!response.ok) {
+        var errTxt2 = await response.text().catch(function () { return ''; });
+        throw new Error('API error ' + response.status + ': ' + errTxt2.slice(0, 200));
+      }
+
       var data = await response.json();
       var content = (data.choices?.[0]?.message?.content || '').trim();
-      var results = parseTranslationArray(content, sentences.length);
-
-      debugLog('YT-Subs', 'translateOneBatch: ' + (Date.now() - startedAt) + 'ms, ' + sentences.length + ' sentences, retries=' + attempt);
-      return results;
+      return parseTranslationArray(content, sentences.length);
     } catch (err) {
       lastError = err;
       if (signal && signal.aborted) throw err;
+      // 不可重试错误立即抛
+      if (isNonRetryableError(err)) throw err;
     }
   }
 

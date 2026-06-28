@@ -467,10 +467,35 @@ function storageLocalSet(key, value) {
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('YouTube translator installed');
-  // 注册 10 天自动清理缓存
   chrome.alarms.create('cache-cleanup', { periodInMinutes: 10 * 24 * 60 }).catch(() => {});
+  chrome.alarms.create('task-cleanup', { periodInMinutes: 30 }).catch(() => {});
   performCacheCleanup();
 });
+
+const TASK_STALE_MS = 30 * 60 * 1000; // 30 分钟无更新视为僵尸任务
+
+async function performTaskCleanup() {
+  try {
+    const now = Date.now();
+    var cleaned = 0;
+    for (const [videoId, task] of videoTasks) {
+      if (task.status === STATUS.TRANSLATING || task.status === STATUS.PREPARING) {
+        if (now - (task.updatedAt || 0) > TASK_STALE_MS) {
+          task.status = STATUS.FAILED;
+          task.error = 'Translation timed out (no progress for 30 minutes)';
+          videoTasks.set(videoId, task);
+          cleaned++;
+        }
+      }
+    }
+    if (cleaned > 0) {
+      persistTasks();
+      console.log('[Task] cleaned ' + cleaned + ' stale tasks');
+    }
+  } catch (err) {
+    console.warn('[Task] cleanup error:', err);
+  }
+}
 
 async function performCacheCleanup() {
   try {
@@ -496,9 +521,8 @@ async function performCacheCleanup() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'cache-cleanup') {
-    performCacheCleanup();
-  }
+  if (alarm.name === 'cache-cleanup') performCacheCleanup();
+  if (alarm.name === 'task-cleanup') performTaskCleanup();
 });
 
 chrome.notifications.onClicked.addListener((notificationId) => {

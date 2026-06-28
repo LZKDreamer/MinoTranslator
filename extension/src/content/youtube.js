@@ -221,24 +221,36 @@
         isShorts: isShortsPage(),
       });
 
-      // 批量翻译
+      // 批量翻译（播放位优先 + 2路并发）
       reportTask({ status: STATUS.TRANSLATING, sourceLanguage: subtitleData.language });
 
+      // 拖动进度条时通知调度器重排优先级
+      var onSeek = function () {
+        if (runId !== translationRunId) return;
+        // 调度器内部靠 getCurrentTime 实时取播放位，不需要显式重排
+      };
+      videoEl.addEventListener('seeking', onSeek);
+
       try {
-        var translations = await batchTranslateSentences(subtitleData.sentences, settings);
+        await batchTranslateSentences(subtitleData.sentences, settings,
+          // getCurrentTime
+          function () { return videoEl ? videoEl.currentTime : 0; },
+          // onProgress: 每批完成增量更新译文
+          function (resultsByIndex, meta) {
+            if (runId !== translationRunId) return;
+            for (var ri = 0; ri < resultsByIndex.length; ri++) {
+              if (resultsByIndex[ri]) cues[ri].translated = resultsByIndex[ri];
+            }
+            renderer.updateCues(cues);
+          }
+        );
 
-        // 将译文写回 cues
-        for (var i = 0; i < subtitleData.sentences.length; i++) {
-          cues[i].translated = translations[i] || '';
-        }
-        renderer.updateCues(cues);
+        // 翻译完成，确保所有译文到位
+        videoEl.removeEventListener('seeking', onSeek);
         hasActiveTranslation = false;
-
-        reportTask({
-          status: STATUS.COMPLETED,
-          cues: cues,
-        });
+        reportTask({ status: STATUS.COMPLETED, cues: cues });
       } catch (err) {
+        videoEl.removeEventListener('seeking', onSeek);
         hasActiveTranslation = false;
         if (runId !== translationRunId) return { ok: false, error: 'Translation cancelled' };
         reportTask({ status: STATUS.FAILED, error: err.message });
