@@ -434,7 +434,9 @@ function segmentSentences(words) {
 
   var result = [];
   for (var m = 0; m < merged.length; m++) {
-    if (merged[m].length <= TINY_SENTENCE_MAX_WORDS && m + 1 < merged.length) {
+    // 过短句合并——但完整句（有标点结尾）不合并
+    var isComplete = merged[m].length > 0 && SENTENCE_END_RE.test(merged[m][merged[m].length - 1].text);
+    if (merged[m].length <= TINY_SENTENCE_MAX_WORDS && !isComplete && m + 1 < merged.length) {
       merged[m + 1] = merged[m].concat(merged[m + 1]);
     } else {
       result.push(merged[m]);
