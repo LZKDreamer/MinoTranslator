@@ -390,20 +390,54 @@ body::before {
 }
 
 .video-action.pending {
-  color: var(--color-muted);
-  background: var(--color-surface);
+  color: transparent;
+  background: var(--color-primary-soft);
   cursor: default;
-  animation: pending-pulse 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  position: relative;
+  overflow: hidden;
+}
+.video-action.pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(53, 88, 214, 0.08) 30%,
+    rgba(53, 88, 214, 0.15) 50%,
+    rgba(53, 88, 214, 0.08) 70%,
+    transparent 100%
+  );
+  animation: pending-shimmer 2s ease-in-out infinite;
+}
+.video-action.pending::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid var(--color-primary);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: pending-spin 0.8s linear infinite;
+}
+
+@keyframes pending-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes pending-spin {
+  to { transform: rotate(360deg); }
 }
 
 .video-action.pending.danger {
-  color: var(--color-danger);
-  background: var(--color-danger-soft);
+  color: transparent;
 }
-
-@keyframes pending-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+.video-action.pending.danger::before {
+  border-color: var(--color-danger);
+  border-top-color: transparent;
 }
 
 /* ── Show More Button ── */
