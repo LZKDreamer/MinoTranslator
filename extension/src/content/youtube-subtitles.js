@@ -375,7 +375,9 @@ function parseJson3ToWords(json) {
         absEnd = tEnd;
       }
 
-      var isNonSpeech = !('acAsrConf' in seg);
+      // 非语音标记：方括号包裹的音效（如 [Music], [음악], [Applause]）
+      // 注意：不能仅凭 acAsrConf 缺失判断，Gemini 字幕所有 seg 都无此字段
+      var isNonSpeech = /^\[.*\]$/.test(text.trim());
       var isSpeakerChange = seg.isSpeakerChange === 1;
 
       words.push({
