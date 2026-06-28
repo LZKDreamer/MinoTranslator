@@ -50,34 +50,44 @@ waitForInterceptedTimedtext() →  通过 timedtext-page-hook.js 拦截 YouTube 
 - **字幕格式**: 支持 JSON3（`events[]` 数组）和 XML（`<text>` 元素）
 - **清洗**: 合并重叠/交叉 cue、去 HTML 标签、去前导横线、去空 cue
 
-#### 3.1.2 翻译分组
+#### 3.1.2 字幕断句（本地处理）
 
-为提高翻译质量和减少 API 调用，字幕 cue 被合并为翻译组：
-
-| 约束 | 值 |
-|---|---|
-| 每组最大 cue 数 | 4 |
-| 每组最大时长 | 12 秒 |
-| 每组最大字符数 | 240 |
-| 以句号/问号/感叹号结尾自动切组 | 是 |
-
-#### 3.1.3 实时翻译流水线
+字幕在发送给 AI 之前先在本地完成断句，时间戳全部来自 JSON3 原始数据：
 
 ```
-视频播放
-  ↓
-selectWarmupGroups()  → 优先翻译当前播放时间附近 60 秒内的组
-  ↓
-translateGroupsRealtime()  →  2 个并发 worker，贪心选择最接近播放时间的组翻译
-  ↓ 每译完一组
-VIDEO_TASK_GROUP_TRANSLATED → 立即渲染到字幕
+JSON3 词级数据（tOffsetMs + aAppend）
+  ↓ parseJson3ToWords() → 词序列（每词保留精确 start/end）
+  ↓ segmentSentences()  → 按标点切分 + 碎片合并
+  ↓ 输出已分句数组 [{start, end, text}]（时间戳零误差）
 ```
 
-- **预热**: 优先翻译当前播放时间附近的组，确保用户立即看到译文
-- **并发**: 2 个 worker 同时工作
-- **重试**: 失败后最多重试 2 次（1.2s / 2.4s 指数退避）
-- **超时**: 单次请求 45 秒
-- **降级**: 批量翻译失败 → 拆成单条逐句翻译
+- **标点切分**: `.?!。？！` 触发断句
+- **碎片合并**: 逗号结尾 ≤3 词的片段合并到下一句
+- **过短合并**: ≤2 词的孤立句合并到邻句
+- **非语音过滤**: `[음악]` `[웃음]` 等本地清理，不发 AI
+
+#### 3.1.3 并发优先翻译
+
+YouTube 显示的是原文（原生字幕），插件只叠加译文。翻译策略：**播放位优先 + 2 路并发**。
+
+```
+用户点翻译
+  ↓
+按播放位排序 → 当前区域批次最先发送
+  ↓
+2 路并发 worker 从优先队列取批翻译
+  ↓ 每批完成
+渲染器增量更新译文（onProgress 回调写 translated 字段）
+```
+
+- **播放位优先**: 距离当前播放时间最近的批次最高优先级
+- **2 路并发**: 两个 worker 同时翻译，互不阻塞
+- **拖动重排**: `seeking` 事件触发时按新播放位重排待处理队列，在飞请求不取消
+- **上下文就近**: 每批 API 调用时找已完成批次中时间最近的发展开最后 5 句作上下文
+- **批次独立失败**: 单批失败不阻断其他批次，该批标 `failed`
+- **错误区分**: 401/403/404 不重试，429 读 `Retry-After` 退避，其余指数退避重试 2 次
+- **缓存不重翻**: 每句独立缓存，换目标语言自动隔离
+- **30 分钟超时**: SW alarm 定期清理无进度更新的僵尸任务
 
 #### 3.1.4 字幕渲染 (Shadow DOM)
 
@@ -99,10 +109,13 @@ VIDEO_TASK_GROUP_TRANSLATED → 立即渲染到字幕
 
 #### 3.1.6 任务管理
 
-- **最大并发**: 3 个视频同时翻译
-- **持久化**: SW 重启后恢复未完成的任务
+- **最大并发**: 3 个视频同时翻译，每个 2 路并发
+- **持久化**: SW 重启后恢复未完成任务
+- **增量渲染**: 每批翻译完成立即显示译文，不等全部完成
+- **进度**: Popup 显示旋转动画 + "翻译中..."（不显示百分比）
 - **状态机**: `available` → `preparing` → `translating` → `completed` / `failed` / `canceled`
-- **离线处理**: 使用 Offscreen Document 执行翻译，避免 SW 超时关闭消息通道
+- **失败展示**: 失败任务显示"失败" + "重试"按钮，不被轮询覆盖
+- **僵尸清理**: 30分钟无更新自动标记失败
 
 ### 3.2 划词翻译
 
@@ -216,7 +229,7 @@ Output ONLY the translation, no explanations, no greetings.
 │  └──────────┘  └──────────────┘  │ TRANSLATE_TEXT              │ │
 │                                   │ CACHE_GET / CACHE_SET       │ │
 │                                   │ GET_SETTINGS / UPDATE_...   │ │
-│                                   │ PROXY_FETCH / DEBUG_LOG     │ │
+│                                   │ DEBUG_LOG                   │ │
 │                                   └────────────────────────────┘ │
 └──────────────────────┬──────────────────────────────────────────┘
                        │ chrome.runtime.sendMessage
@@ -245,14 +258,15 @@ Output ONLY the translation, no explanations, no greetings.
 | `src/background/storage.js` | `StorageManager` — 统一 `chrome.storage.sync` 封装 |
 | `src/background/translator.js` | `Translator` — 划词翻译的 AI 调用封装 |
 | `src/content/youtube.js` | YouTube 视频检测、翻译预热调度 |
-| `src/content/youtube-subtitles.js` | 字幕获取、解析、清洗、分组、翻译、缓存 |
+| `src/content/youtube-subtitles.js` | 字幕获取、解析、清洗、断句、并发翻译、缓存 |
 | `src/content/subtitle-renderer.js` | Shadow DOM 字幕渲染器 |
 | `src/content/timedtext-interceptor.js` | 注入 page-hook 到主世界 |
 | `src/content/timedtext-page-hook.js` | 在页面主世界 Hook `fetch` 拦截字幕请求 |
 | `src/content/floating-translate.js` | 划词翻译：选中→图标→点击→气泡 |
-| `src/offscreen/offscreen.js` | 离线文档：后台并发翻译 worker 池 |
 | `src/popup/popup.js` | 扩展弹出界面 |
 | `src/options/options.js` | 完整设置页面 |
+| `src/shared/translate-prompt.js` | 翻译 Prompt 构建（批量 + 划词） |
+| `src/shared/constants.js` | 全局状态常量（STATUS / MESSAGE_TYPE） |
 | `src/i18n/zh-CN.json` / `en.json` | 国际化资源 |
 
 ---
@@ -266,15 +280,13 @@ Output ONLY the translation, no explanations, no greetings.
   → Popup → START_VIDEO_TASK
     → SW 发送 PREPARE_VIDEO_TRANSLATION 到 content script
       → content script 获取字幕（3 级降级）
-      → 返回 cues + metadata
+      → 本地断句（parseJson3ToWords + segmentSentences）
     → SW 创建 task，持久化
-    → 启动 Offscreen Document
-      → Offscreen 发送 OFFSCREEN_START_TRANSLATION
-        → 分组 → 并发 Worker 翻译 → 每译完一组报告进度
-          → SW 转发 VIDEO_TASK_GROUP_TRANSLATED 到 content script
-            → SubtitleRenderer 渲染到 Shadow DOM
-      → 全部完成 → VIDEO_TASK_PROGRESS(completed)
-        → SW 发送通知
+    → SW 发送 START_SUBTITLE_TRANSLATION
+      → content script 按播放位优先级分批
+      → 2 路并发翻译（batchTranslateSentences）
+      → 每批完成 → renderer.updateCues → 增量显示译文
+      → 全部完成 → SW 更新 task 为 completed
 ```
 
 ### 5.2 划词翻译
