@@ -249,11 +249,18 @@ function selectBestTrack(tracks, audioTracks, preferredLang) {
     }
     debugLog('YT-Subs', 'selectBestTrack: AUTO audio-lang "' + audioLang + '" has NO matching caption track');
   } else {
-    debugLog('YT-Subs', 'selectBestTrack: no audioLang available, falling back to tracks[0]');
+    debugLog('YT-Subs', 'selectBestTrack: no audioLang available');
   }
 
-  debugLog('YT-Subs', 'selectBestTrack: FALLBACK to tracks[0]: ' + (tracks[0].languageCode || '?'));
-  return tracks[0];
+  // 无音频匹配 → fallback：优先选 ASR 轨道（自动语音识别 = 视频原语言）
+  // YouTube 按浏览器 locale 排序轨道时 tracks[0] 可能是翻译轨道，而非原语言
+  var asrTrack = null;
+  for (var ti = 0; ti < tracks.length; ti++) {
+    if (tracks[ti].kind === 'asr') { asrTrack = tracks[ti]; break; }
+  }
+  var fallback = asrTrack || tracks[0];
+  debugLog('YT-Subs', 'selectBestTrack: FALLBACK ' + (asrTrack ? 'ASR track[' + tracks.indexOf(asrTrack) + ']: ' + (asrTrack.languageCode || '?') : 'tracks[0]: ' + (tracks[0].languageCode || '?')));
+  return fallback;
 }
 
 function findTrackByLang(tracks, lang) {
@@ -283,13 +290,19 @@ async function fetchFromPage(videoId, preferredLang) {
     debugLog('YT-Subs', 'fetchFromPage: response status ' + resp.status);
     const html = await resp.text();
     debugLog('YT-Subs', 'fetchFromPage: HTML length ' + html.length);
-    const match = html.match(/"captionTracks":(\[.*?\])/);
-    debugLog('YT-Subs', 'fetchFromPage regex match: ' + (match ? 'found, match[1] len:' + match[1].length : 'not found'));
-    if (match) {
-      const tracks = JSON.parse(match[1]);
-      debugLog('YT-Subs', 'fetchFromPage: parsed ' + tracks.length + ' tracks');
+    const captionsMatch = html.match(/"captionTracks":(\[.*?\])/);
+    debugLog('YT-Subs', 'fetchFromPage captionsMatch: ' + (captionsMatch ? 'found, len:' + captionsMatch[1].length : 'not found'));
+    if (captionsMatch) {
+      const tracks = JSON.parse(captionsMatch[1]);
+      // 同时提取 audioTracks（用于 auto 模式的智能语言匹配）
+      var audioTracks = null;
+      var audioMatch = html.match(/"audioTracks":(\[.*?\])/);
+      if (audioMatch) {
+        try { audioTracks = JSON.parse(audioMatch[1]); } catch (_e) { /* ignore */ }
+      }
+      debugLog('YT-Subs', 'fetchFromPage: parsed ' + tracks.length + ' tracks, audioTracks=' + (audioTracks ? audioTracks.length : 'none'));
       if (tracks.length > 0) {
-        var track = selectBestTrack(tracks, null, preferredLang);
+        var track = selectBestTrack(tracks, audioTracks, preferredLang);
         debugLog('YT-Subs', 'fetchFromPage: selected track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
         return { baseUrl: track.baseUrl, language: track.languageCode || 'unknown' };
       }
@@ -720,6 +733,31 @@ function segmentSentences(words) {
     if (curDur < MIN_DISPLAY_SEC) {
       var maxEnd = md + 1 < sentences.length ? sentences[md + 1].start : sentences[md].start + MIN_DISPLAY_SEC;
       sentences[md].end = Math.min(sentences[md].start + MIN_DISPLAY_SEC, maxEnd);
+    }
+  }
+
+  // 后处理：短句碎片合并 — 把紧挨着一起说的超短句合并到下一句
+  // 解决韩语/日语等每句都带标点、小碎片无法被 FRAGMENT_MERGE 捕获的问题
+  // 例："하지 마."(0.6s) + "요거든요."(0.9s) + "자, 하지 말라고..."(2.2s) → 合并为一句
+  var MERGE_DUR_SEC = 1.2;
+  var MERGE_WORD_MAX = 3;
+  var MERGE_GAP_SEC = 0.5;
+  var mi = 0;
+  while (mi < sentences.length - 1) {
+    var curSent = sentences[mi];
+    var nextSent = sentences[mi + 1];
+    var dur = curSent.end - curSent.start;
+    var wc = curSent.text.split(/\s+/).length;
+    var gap = nextSent.start - curSent.end;
+    if (dur < MERGE_DUR_SEC && wc <= MERGE_WORD_MAX && gap < MERGE_GAP_SEC) {
+      sentences[mi + 1] = {
+        start: curSent.start,
+        end: nextSent.end,
+        text: curSent.text + ' ' + nextSent.text,
+      };
+      sentences.splice(mi, 1);
+    } else {
+      mi++;
     }
   }
 

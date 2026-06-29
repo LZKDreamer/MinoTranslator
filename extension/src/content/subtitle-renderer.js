@@ -4,6 +4,7 @@
    ═══════════════════════════════════════════════ */
 
 const SUBTITLE_DISPLAY_DELAY_SECONDS = 0;
+const SUBTITLE_GAP_HOLD_SEC = 2.0; // 字幕间隙 <2s 时保持显示上一句，避免闪烁
 
 class SubtitleRenderer {
   constructor() {
@@ -23,6 +24,7 @@ class SubtitleRenderer {
     this.rafId = null;
     this.currentCueIndex = -1;
     this._lastRenderedIndex = -1;
+    this._lastValidIndex = -1;  // 间隙 hold 策略：记录上一个有效 cue 索引
   }
 
   /**
@@ -179,18 +181,36 @@ class SubtitleRenderer {
     }
 
     if (index < 0 || index >= this.cues.length) {
+      // 间隙 hold 策略：如果间隙很短，保持显示上一句避免字幕闪烁
+      // 找到下一个即将开始的 cue，计算离它还有多久
+      if (this._lastValidIndex >= 0 && this._lastValidIndex < this.cues.length && this.video) {
+        var currentTime = this.video.currentTime;
+        // 二分查找第一个 start > currentTime 的 cue
+        var nextCueIdx = -1;
+        var lo = 0, hi = this.cues.length - 1;
+        while (lo <= hi) {
+          var mid = Math.floor((lo + hi) / 2);
+          if (this.cues[mid].start > currentTime) {
+            nextCueIdx = mid;
+            hi = mid - 1;
+          } else {
+            lo = mid + 1;
+          }
+        }
+        if (nextCueIdx >= 0) {
+          var waitSec = this.cues[nextCueIdx].start - currentTime;
+          if (waitSec < SUBTITLE_GAP_HOLD_SEC) {
+            return; // 间隙很短，保持当前字幕不隐藏
+          }
+        }
+      }
       container.classList.remove('visible');
       container.innerHTML = '';
       return;
     }
+    this._lastValidIndex = index;
 
     const cue = this.cues[index];
-    // 无译文时不显示字幕
-    if (!cue.translated) {
-      container.classList.remove('visible');
-      container.innerHTML = '';
-      return;
-    }
     const mode = this.config.mode;
     const position = this.config.position;
     const wasHidden = !container.classList.contains('visible');
