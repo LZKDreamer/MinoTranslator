@@ -382,8 +382,14 @@ function parseJson3ToWords(json) {
       var absEnd;
       if (si + 1 < segs.length) {
         absEnd = tStart + (segs[si + 1].tOffsetMs || 0);
-      } else {
+      } else if (segs.length === 1) {
+        // 单 seg 短语级事件：event 的 dDurationMs 就是这句话的真实时长
         absEnd = tEnd;
+      } else {
+        // 多词事件的末词：不直接用 tEnd（幽灵时间），
+        // 根据前一词的时长估算本词时长，上限不超过 tEnd
+        var prevWordDur = si > 0 ? Math.max(offset - (segs[si - 1].tOffsetMs || 0), 80) : 500;
+        absEnd = Math.min(absStart + prevWordDur, tEnd);
       }
 
       // 非语音标记：方括号包裹的音效（如 [Music], [음악], [Applause]）
@@ -568,26 +574,15 @@ function segmentSentences(words) {
         var gapMs = sent[q + 1].start - sent[q].end;
         if (gapMs > bestGap) { bestGap = gapMs; bestSplit = q; }
       }
-      // 如果有>=80ms的间隔，在最大间隔处切分
       // 如果没有显著间隔（连续说话），按词数对半切分
-      if (bestGap >= 80) {
-        // split at bestGap position
-      } else {
+      if (bestGap < 80) {
         bestSplit = Math.floor(sent.length / 2) - 1;
       }
       if (bestSplit > 0 && bestSplit < sent.length - 1) {
         var leftSent = sent.slice(0, bestSplit + 1);
         var rightSent = sent.slice(bestSplit + 1);
-        var leftTextParts = []; for (var lp = 0; lp < leftSent.length; lp++) leftTextParts.push(leftSent[lp].text);
-        var leftFull = leftTextParts.join(' ').replace(/\s+/g, ' ').trim();
-        if (leftFull) {
-          sentences.push({
-            start: leftSent[0].start / 1000.0,
-            end: leftSent[leftSent.length - 1].end / 1000.0,
-            text: leftFull,
-          });
-        }
-        result.splice(n + 1, 0, rightSent);
+        // 左半先入队、再右半，保持时间顺序
+        result.splice(n + 1, 0, leftSent, rightSent);
         continue;
       }
     }
@@ -603,8 +598,21 @@ function segmentSentences(words) {
   // 解决「字幕还显示上句，音频已经在说下句」的滞后问题，同时保留 300ms 自然过渡
   var OVERLAP_BUFFER_SEC = 0.3;
   for (var ot = 0; ot < sentences.length - 1; ot++) {
-    if (sentences[ot + 1].start + OVERLAP_BUFFER_SEC < sentences[ot].end) {
-      sentences[ot].end = sentences[ot + 1].start + OVERLAP_BUFFER_SEC;
+    var newEnd = sentences[ot + 1].start + OVERLAP_BUFFER_SEC;
+    if (newEnd < sentences[ot].end) {
+      // guard: 保证 end >= start，防止渲染器二分查找失效
+      sentences[ot].end = Math.max(sentences[ot].start, newEnd);
+    }
+  }
+
+  // 后处理：最小展示时长 — 短句拉伸到至少 0.8s，防止一闪而过
+  // 上限不超下一句 start，不会造成句子重叠或时序错乱
+  var MIN_DISPLAY_SEC = 0.8;
+  for (var md = 0; md < sentences.length; md++) {
+    var curDur = sentences[md].end - sentences[md].start;
+    if (curDur < MIN_DISPLAY_SEC) {
+      var maxEnd = md + 1 < sentences.length ? sentences[md + 1].start : sentences[md].start + MIN_DISPLAY_SEC;
+      sentences[md].end = Math.min(sentences[md].start + MIN_DISPLAY_SEC, maxEnd);
     }
   }
 
@@ -1092,25 +1100,53 @@ function storageLocalGet(key) {
 }
 
 function parseTranslationArray(text, expectedLength) {
-  let parsed = null;
   var rawText = String(text || '').trim();
+
+  // 尝试解析 JSON
+  var parsed = null;
   try { parsed = JSON.parse(rawText); } catch (_err) {
-    // 非贪婪提取第一个 JSON 数组（防止 AI 在数组后加注释）
-    const match = rawText.match(/\[[\s\S]*?\]/);
-    if (match) try { parsed = JSON.parse(match[0]); } catch (_e2) {}
+    // 非贪婪提取第一个 JSON 对象或数组（防止 AI 在后面加注释）
+    var objMatch = rawText.match(/\{[\s\S]*?\}/);
+    var arrMatch = rawText.match(/\[[\s\S]*?\]/);
+    if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_e2) {}
+    if (!parsed && arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_e3) {}
   }
-  // 容错：单句时 AI 可能返回纯文本（无引号、无括号）
+
+  // 容错：单句时 AI 可能返回纯文本
   if (expectedLength === 1) {
     if (typeof parsed === 'string') { parsed = [parsed]; }
-    else if (!Array.isArray(parsed) && rawText) { parsed = [rawText]; }
+    else if (!parsed && rawText) { parsed = [rawText]; }
   }
-  // 容错：AI 输出被 max_tokens 截断，JSON 数组不完整
-  // 尝试修复常见截断模式：[..., "partial → 补全为 [..., "partial"]
-  if (!parsed || !Array.isArray(parsed)) {
+
+  // 新格式：{"0":"T1","1":"T2"} — 按索引对齐，即使缺条也不会错位
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    var indexed = new Array(expectedLength);
+    for (var ki = 0; ki < expectedLength; ki++) indexed[ki] = '';
+    for (var key in parsed) {
+      if (parsed.hasOwnProperty(key)) {
+        var idx = parseInt(key, 10);
+        if (!isNaN(idx) && idx >= 0 && idx < expectedLength) {
+          indexed[idx] = String(parsed[key] || '').trim();
+        }
+      }
+    }
+    return indexed;
+  }
+
+  // 旧格式兼容：数组 → 按位置对齐
+  if (Array.isArray(parsed)) {
+    return normalizeTranslationArray(parsed, expectedLength);
+  }
+
+  // 截断修复（仅对数组格式）
+  if (!parsed) {
     var repaired = tryRepairTruncatedJson(rawText);
-    if (repaired) parsed = repaired;
+    if (repaired && Array.isArray(repaired)) {
+      return normalizeTranslationArray(repaired, expectedLength);
+    }
   }
-  return normalizeTranslationArray(parsed, expectedLength);
+
+  throw new Error('Translation response is not valid JSON');
 }
 
 /**

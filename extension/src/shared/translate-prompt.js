@@ -312,10 +312,11 @@ var TranslatePrompt = (function () {
     if (isBatch) {
       systemLines.push('');
       systemLines.push('OUTPUT FORMAT:');
-      systemLines.push('Return ONLY a JSON array of translated strings.');
-      systemLines.push('Same number of elements, same order as input.');
-      systemLines.push('Example: a JSON array like [T1, T2, T3] in order');
-      systemLines.push('No markdown, no code blocks, no explanations.');
+      systemLines.push('Return ONLY a JSON object mapping sentence index to translation.');
+      systemLines.push('Keys are the [N] numbers from below, values are the ' + targetName + ' translations.');
+      systemLines.push('Example: {"0":"translation of line 0","1":"translation of line 1","2":"translation of line 2"}');
+      systemLines.push('- One entry per input line. If you cannot translate a line, output an empty string for it: "5":""');
+      systemLines.push('- No markdown, no code blocks, no explanations.');
     }
 
     // === User Prompt ===

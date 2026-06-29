@@ -28,13 +28,19 @@ class SubtitleRenderer {
   /**
    * 创建并挂载字幕 DOM 容器
    */
-  mount() {
+  mount(retries) {
+    retries = retries || 0;
+    if (retries > 30) {
+      console.warn('[SubtitleRenderer] mount: player not found after 30s, giving up');
+      return;
+    }
     const player = document.querySelector('#movie_player') ||
                    document.querySelector('.html5-video-player');
 
     if (!player) {
-      // 重试直到找到播放器
-      setTimeout(() => this.mount(), 1000);
+      // 重试直到找到播放器，最多 30 次（30 秒）
+      var self = this;
+      setTimeout(function () { self.mount((retries || 0) + 1); }, 1000);
       return;
     }
 
@@ -104,6 +110,15 @@ class SubtitleRenderer {
   renderLoop() {
     if (!this.video || this.video.readyState < 2) {
       this.rafId = requestAnimationFrame(() => this.renderLoop());
+      return;
+    }
+
+    // 视频播放结束 → 隐藏字幕并停止渲染循环
+    if (this.video.ended) {
+      if (this.currentCueIndex !== -1) {
+        this.currentCueIndex = -1;
+        this.renderCue(-1);
+      }
       return;
     }
 
@@ -325,10 +340,14 @@ class SubtitleRenderer {
   }
 
   /**
-   * 清除字幕：清空 cues 并隐藏已显示的字幕
+   * 清除字幕：清空 cues 并隐藏已显示的字幕，停止渲染循环
    * （切换视频时调用，防止旧视频的字幕残留）
    */
   clear() {
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
     this.cues = [];
     this.currentCueIndex = -1;
     this.renderCue(-1);
