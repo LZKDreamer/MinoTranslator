@@ -8,7 +8,7 @@ import {
   ServerCog,
   ShieldCheck,
   Subtitles
-} from "lucide-react";
+} from "@/components/ui/Icons";
 import {getTranslations} from "next-intl/server";
 import {notFound} from "next/navigation";
 import {release} from "@/config/release";

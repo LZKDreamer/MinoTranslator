@@ -1,5 +1,5 @@
 import Link from "next/link";
-import {Menu} from "lucide-react";
+import {Menu} from "@/components/ui/Icons";
 import {getTranslations} from "next-intl/server";
 import type {Locale} from "@/i18n/routing";
 

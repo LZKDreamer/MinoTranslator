@@ -107,7 +107,6 @@
     ]
   },
   "footer": {
-    "domain": "www.zaymino.com",
     "note": "Chrome extension website, currently distributed via ZIP package."
   }
 }

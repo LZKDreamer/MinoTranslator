@@ -1,5 +1,6 @@
 import {getTranslations} from "next-intl/server";
 import type {Locale} from "@/i18n/routing";
+import {site} from "@/config/site";
 
 type Props = {
   locale: Locale;
@@ -16,7 +17,7 @@ export async function SiteFooter({locale}: Props) {
           <span>{locale === "zh-CN" ? "Mino 翻译" : "Mino Translator"}</span>
         </div>
         <p>{t("note")}</p>
-        <span>{t("domain")}</span>
+        <span>{site.domain}</span>
       </div>
     </footer>
   );
