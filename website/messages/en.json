@@ -1,7 +1,7 @@
 {
   "seo": {
     "title": "Mino Translator | Bilingual YouTube Subtitles for Chrome",
-    "description": "Mino Translator is a Chrome extension for bilingual YouTube subtitles and in-page selection translation. Bring your own AI model.",
+    "description": "Mino Translator is a Chrome extension for bilingual YouTube subtitles and in-page selection translation. Free Agnes AI recommended.",
     "ogTitle": "Mino Translator",
     "ogDescription": "Bilingual subtitles for YouTube videos and instant translation for selected text on any webpage."
   },
@@ -14,46 +14,46 @@
     "menu": "Menu"
   },
   "hero": {
-    "status": "Not on the Chrome Web Store yet",
-    "title": "A smarter way to translate YouTube",
+    "status": "Chrome extension",
+    "title": "Watch YouTube in any language",
     "subtitle": "Bilingual subtitles for videos, instant translation for any text you select, with a clear ZIP install guide.",
     "primaryCta": "Download ZIP",
     "secondaryCta": "View install guide",
     "previewAlt": "Bilingual YouTube subtitle preview",
     "popupAlt": "Mino Translator extension popup preview",
-    "installTitle": "From download to ready in 4 steps",
-    "installText": "Currently distributed as a ZIP package. Download, unzip, load the unpacked extension in Chrome, and add your API key.",
+    "installTitle": "Open the door to global content",
+    "installText": "Install Mino and any YouTube video can have subtitles in your language.",
     "checks": [
-      {"title": "Download ZIP", "text": "Get the latest package"},
-      {"title": "Open extensions", "text": "chrome://extensions"},
-      {"title": "Load unpacked", "text": "Choose the unzipped folder"},
-      {"title": "Add API key", "text": "Use your own model provider"}
+      {"title": "Any language", "text": "Japanese, Korean, Spanish, French — Mino translates into whatever language you speak."},
+      {"title": "Syncs as you play", "text": "Translations appear on screen, perfectly synced with the video."},
+      {"title": "Background mode", "text": "Start a translation, close the page, and get notified when it's done."},
+      {"title": "Multiple at once", "text": "Translate several videos simultaneously — each one runs independently."}
     ]
   },
   "features": {
-    "title": "There when you need it, invisible when you do not",
-    "body": "Mino breaks subtitles, selection translation, and model setup into clean workflows that stay out of your way.",
+    "title": "There when needed, invisible when not",
+    "body": "Three core features — subtitles, selection translation, and model setup — each doing its job without getting in your way.",
     "items": [
-      {"title": "Bilingual YouTube subtitles", "body": "Overlay both source and translated subtitles on the player, synced to the current playback position."},
-      {"title": "Selection translation", "body": "Select any text on a page and a lightweight translation bubble appears. Read and move on."},
-      {"title": "Bring your own model", "body": "Compatible with any OpenAI-compatible API. Choose the provider you trust."},
-      {"title": "ZIP install", "body": "A clear manual install path before the store listing — no waiting for approval."},
-      {"title": "Customizable subtitle appearance", "body": "Subtitle mode, font size, position, background opacity, and color — all adjustable in settings."}
+      {"title": "Bilingual YouTube subtitles", "body": "Source and translated subtitles overlaid on the player, synced to playback position."},
+      {"title": "Selection translation", "body": "Select any text and a lightweight translation bubble appears. Read and move on."},
+      {"title": "Free model included", "body": "<agnesLink>Agnes AI</agnesLink> is free — sign up and grab your API key to get started. Also supports <models>_models_</models>, and any OpenAI-compatible model of your choice."},
+      {"title": "Quick install", "body": "Download ZIP, load into Chrome, and start using it immediately."},
+      {"title": "Customize the look", "body": "Font size, color, opacity, position — adjust the subtitles to your liking."}
     ],
     "miniAlt": "Subtitle translation preview"
   },
   "scenes": {
-    "youtubeTitle": "Subtitles that work like a tool should",
+    "youtubeTitle": "Watch the video, not the translation",
     "youtubeBody": "Bilingual subtitles overlay the video with adjustable opacity and font size. You focus on the content — Mino handles the translation.",
     "youtubeAlt": "Bilingual subtitles on a YouTube video player",
-    "popupTitle": "Popup for the actions that matter",
-    "popupBody": "Open a captioned YouTube video and Mino detects available tracks automatically. Click the Mino icon to open the panel, choose your target language, and start translating. When translation completes, a lightweight notification appears in the corner — no tab switching, no interruption.",
+    "popupTitle": "Popup panel, in and out",
+    "popupBody": "Open a captioned YouTube video and Mino detects available tracks automatically. Click the icon to open the panel, choose your target language, and start translating. A lightweight notification appears in the corner when done — no tab switching needed.",
     "popupAlt": "Extension popup showing an active translation task"
   },
   "download": {
     "status": "ZIP package",
     "title": "Download and load into Chrome manually",
-    "body": "Mino is not yet listed on the Chrome Web Store. Download the ZIP, unzip it, and load the unpacked extension in developer mode.",
+    "body": "Download the ZIP, unzip it, and load the unpacked extension in developer mode.",
     "version": "Version",
     "format": "Format",
     "size": "File size",
@@ -65,7 +65,7 @@
   },
   "install": {
     "title": "Install in four clear steps",
-    "body": "Manual installation takes a few extra clicks — we've laid out every step so you can follow along.",
+    "body": "Manual installation takes a few extra clicks — every step is laid out clearly.",
     "steps": [
       {"title": "Download ZIP", "body": "Get the latest package from the website."},
       {"title": "Unzip folder", "body": "Extract it somewhere easy to find."},
@@ -74,27 +74,27 @@
     ]
   },
   "api": {
-    "title": "Your model, your rules",
-    "body": "Mino supports any OpenAI-compatible API. The website has no accounts and never stores your API key.",
+    "title": "Your key, your model",
+    "body": "<agnesLink>Agnes AI</agnesLink> offers free credits — sign up, get your API key, and start using it. Also compatible with <models>_models_</models>, and any OpenAI-compatible API.",
     "modelAlt": "Model API settings panel",
     "subtitleAlt": "Subtitle display settings panel",
     "points": [
-      "The website does not provide API keys",
-      "Configure your OpenAI-compatible API in extension settings",
+      "Free model — sign up and get your API key",
+      "Supports popular LLMs of your choice",
       "API keys stay in local browser storage only"
     ]
   },
   "faq": {
     "title": "Frequently asked questions",
     "items": [
-      {"question": "Is Mino on the Chrome Web Store?", "answer": "Not yet. The website currently provides a ZIP package with a detailed manual install guide."},
-      {"question": "Why do I need developer mode?", "answer": "Because the extension is not listed on the Chrome Web Store. ZIP installation requires enabling developer mode and loading the unpacked folder."},
-      {"question": "Do I need my own API key?", "answer": "Yes. You need to configure an OpenAI-compatible API provider. The website does not provide model accounts or API keys."},
-      {"question": "Which languages are supported?", "answer": "Translation capabilities depend on your configured model. The website UI supports Simplified Chinese and English."},
+      {"question": "Where can I download Mino?", "answer": "The website provides a ZIP package with a detailed manual install guide."},
+      {"question": "Why do I need developer mode?", "answer": "ZIP installation requires enabling developer mode and loading the unpacked folder."},
+      {"question": "Do I need my own API key?", "answer": "Yes — you need an API key. Mino recommends Agnes AI which is free. Sign up, grab your key, and start translating. You can also bring your own OpenAI-compatible API provider."},
+      {"question": "Which languages are supported?", "answer": "Mino supports Japanese, Korean, English, French, Spanish, and more. The website UI supports Simplified Chinese and English."},
       {"question": "Which websites are supported?", "answer": "YouTube is the core scenario for subtitles. Selection translation works on most common webpages."},
-      {"question": "Can it translate videos without captions?", "answer": "No. Subtitle translation depends on the video having a caption track. Without one, subtitles cannot be generated."},
-      {"question": "Does the website receive my API key?", "answer": "No. The website has no login system and does not process your translation data. All requests go directly to your configured API provider."},
-      {"question": "How do I update the extension?", "answer": "Download the new ZIP, unzip it, and reload the unpacked extension folder in Chrome extension management."}
+      {"question": "Can it translate videos without captions?", "answer": "No. Subtitle translation depends on the video having a caption track."},
+      {"question": "Does the website receive my API key?", "answer": "No. All requests go directly to your configured API provider."},
+      {"question": "How do I update the extension?", "answer": "Download the new ZIP, unzip it, and reload the unpacked extension folder in Chrome."}
     ]
   },
   "privacy": {
@@ -107,6 +107,7 @@
     ]
   },
   "footer": {
-    "note": "Chrome extension website, currently distributed via ZIP package."
+    "note": "Chrome extension official website",
+    "privacyPolicy": "Privacy Policy"
   }
 }

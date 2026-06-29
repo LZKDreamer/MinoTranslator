@@ -13,6 +13,7 @@ import {getTranslations} from "next-intl/server";
 import {notFound} from "next/navigation";
 import {release} from "@/config/release";
 import {site} from "@/config/site";
+import {models} from "@/config/models";
 import {isLocale, type Locale} from "@/i18n/routing";
 import {RevealOnScroll} from "@/components/ui/RevealOnScroll";
 import {SiteFooter} from "@/components/layout/SiteFooter";
@@ -136,7 +137,14 @@ export default async function HomePage({params}: PageProps) {
                     <Icon size={21} strokeWidth={1.75} />
                   </span>
                   <h3>{item.title}</h3>
-                  <p>{item.body}</p>
+                  {index === 2 ? (
+                    <p>{t.rich("features.items.2.body", {
+                      agnesLink: (chunks) => <a href={models.agnes.url} target="_blank" rel="noopener noreferrer" className="text-link">{chunks} ↗</a>,
+                      models: () => modelLinks(locale)
+                    })}</p>
+                  ) : (
+                    <p>{item.body}</p>
+                  )}
                   {index === 0 ? (
                     <div className="mini-shot">
                       <img src="/assets/subtitle-codex.png" alt={t("features.miniAlt")} />
@@ -237,7 +245,10 @@ export default async function HomePage({params}: PageProps) {
         <div className="container api-panel">
           <div className="copy-block">
             <h2>{t("api.title")}</h2>
-            <p>{t("api.body")}</p>
+            <p>{t.rich("api.body", {
+                agnesLink: (chunks) => <a href={models.agnes.url} target="_blank" rel="noopener noreferrer" className="text-link">{chunks} ↗</a>,
+                models: () => modelLinks(locale)
+              })}</p>
             <div className="api-points">
               {apiPoints.map((point, index) => {
                 const Icon = apiIcons[index] ?? ShieldCheck;
@@ -310,4 +321,14 @@ function ReleaseStat({label, value}: {label: string; value: string}) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function modelLinks(locale: string) {
+  const sep = locale === "zh-CN" ? "、" : ", ";
+  return models.supported.map((m, i) => (
+    <span key={m.name}>
+      {i > 0 && <>{sep}</>}
+      <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-link">{m.name} ↗</a>
+    </span>
+  ));
 }

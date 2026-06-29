@@ -1085,6 +1085,18 @@ h3 {
   transform: translateY(0);
 }
 
+/* Inline text link — e.g. Agnes AI, model names */
+a.text-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition: color 0.15s;
+}
+a.text-link:hover {
+  color: #095fae;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal,
   .reveal-stagger > * {

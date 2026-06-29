@@ -16,7 +16,7 @@ export async function SiteFooter({locale}: Props) {
           <img src="/assets/icon128.png" alt="" />
           <span>{locale === "zh-CN" ? "Mino 翻译" : "Mino Translator"}</span>
         </div>
-        <p>{t("note")}</p>
+        <p>{t("note")} · <a href="/privacy/index.html" target="_blank" className="text-link">{t("privacyPolicy")}</a></p>
         <span>{site.domain}</span>
       </div>
     </footer>
