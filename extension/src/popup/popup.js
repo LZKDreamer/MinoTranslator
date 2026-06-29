@@ -50,7 +50,7 @@
   }
 
   /* ── State ───────────────────────────── */
-  const DEFAULTS = { targetLanguage: 'zh-CN', uiLanguage: 'auto', defaultModel: 'agnes-ai', models: { 'agnes-ai': { apiKey: '' } } };
+  const DEFAULTS = { sourceLanguage: SOURCE_LANGUAGE_DEFAULT, targetLanguage: TARGET_LANGUAGE_DEFAULT, uiLanguage: 'auto', defaultModel: 'agnes-ai', models: { 'agnes-ai': { apiKey: '' } } };
 
   let state = { ...DEFAULTS };
   let showAllCompleted = false;
@@ -58,12 +58,14 @@
   let isRefreshing = false;
   let _messages = {};
 
+  const $sourceLang = document.getElementById('sourceLanguage');
   const $targetLang = document.getElementById('targetLanguage');
   const $settingsBtn = document.getElementById('openSettings');
   const $configBanner = document.getElementById('configBanner');
   const $goToSettingsBtn = document.getElementById('goToSettingsBtn');
   const $videoList = document.getElementById('videoList');
   const $template = document.getElementById('videoItemTemplate');
+  const $toast = document.getElementById('toast');
 
   function sendRuntimeMessage(message) {
     return new Promise(function (resolve) {
@@ -80,12 +82,72 @@
   async function loadState() {
     const result = await chrome.storage.sync.get(Object.keys(DEFAULTS));
     state = { ...DEFAULTS, ...result };
-    $targetLang.value = state.targetLanguage;
+  }
+
+  function renderLanguageSelects() {
+    // 源语言下拉
+    $sourceLang.innerHTML = '';
+    for (var i = 0; i < SOURCE_LANGUAGES.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = SOURCE_LANGUAGES[i].value;
+      opt.textContent = t(SOURCE_LANGUAGES[i].labelKey, SOURCE_LANGUAGES[i].value);
+      $sourceLang.appendChild(opt);
+    }
+    // 目标语言下拉（不含 auto）
+    $targetLang.innerHTML = '';
+    for (var j = 0; j < TARGET_LANGUAGES.length; j++) {
+      var topt = document.createElement('option');
+      topt.value = TARGET_LANGUAGES[j].value;
+      topt.textContent = t(TARGET_LANGUAGES[j].labelKey, TARGET_LANGUAGES[j].value);
+      $targetLang.appendChild(topt);
+    }
+  }
+
+  function setResolvedLanguageValues() {
+    // 源语言：直接取存储值
+    $sourceLang.value = state.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
+    // 目标语言：auto 时解析为浏览器语言
+    var targetVal = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
+    if (targetVal === 'auto') {
+      targetVal = resolveLanguage();
+      // 确保解析结果在下拉选项中存在
+      if (!$targetLang.querySelector('option[value="' + targetVal + '"]')) {
+        targetVal = TARGET_LANGUAGES[0].value;
+      }
+    }
+    $targetLang.value = targetVal;
+  }
+
+  function getEffectiveTargetLanguage() {
+    var val = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
+    if (val === 'auto') {
+      return resolveLanguage();
+    }
+    return val;
   }
 
   async function saveState(partial) {
     state = { ...state, ...partial };
     await chrome.storage.sync.set(partial);
+  }
+
+  var _toastTimer = null;
+  function showToast(msg, subMsg) {
+    if (!$toast) return;
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+    $toast.textContent = msg;
+    if (subMsg) {
+      var $sub = document.createElement('span');
+      $sub.className = 'toast-sub';
+      $sub.textContent = subMsg;
+      $toast.appendChild($sub);
+    }
+    $toast.hidden = false;
+    requestAnimationFrame(function () { $toast.classList.add('visible'); });
+    _toastTimer = setTimeout(function () {
+      $toast.classList.remove('visible');
+      _toastTimer = setTimeout(function () { $toast.hidden = true; $toast.textContent = ''; }, 200);
+    }, TOAST_DURATION_MS);
   }
 
   function getActionForStatus(status) {
@@ -105,10 +167,20 @@
     if (item.status === STATUS.TRANSLATING) return t('popup.statusTranslating');
     if (item.status === STATUS.PREPARING) return t('popup.statusPreparing');
     if (item.status === STATUS.FAILED) return t('popup.statusFailed');
-    if (item.status === STATUS.COMPLETED) return t('popup.statusCompleted');
+    if (item.status === STATUS.COMPLETED) {
+      var src = formatLangCode(item.sourceLanguage || '?');
+      var tgt = formatLangCode(item.targetLanguage || '?');
+      return src + ' → ' + tgt;
+    }
     if (item.status === STATUS.CANCELED) return t('popup.statusCanceled');
     if (item.status === STATUS.AVAILABLE) return t('popup.statusAvailable');
     return '';
+  }
+
+  function formatLangCode(lang) {
+    if (!lang || lang === 'unknown' || lang === 'auto') return '?';
+    var parts = String(lang).split('-');
+    return parts[0];
   }
 
   function setProgress($ring, percent, isIndeterminate) {
@@ -181,6 +253,16 @@
       $status.textContent = getStatusLabel(item);
       $status.classList.toggle('is-error', item.status === STATUS.FAILED);
 
+      // 源语言不匹配提示 — 弹 Toast 并恢复下拉框为自动（仅一次）
+      if (item.sourceLangFallback && state.sourceLanguage && state.sourceLanguage !== SOURCE_LANGUAGE_DEFAULT) {
+        var expectedName = t('sourceLang.' + (item.expectedSourceLang || ''), item.expectedSourceLang || '');
+        showToast(t('toast.sourceLangNotFound', '未找到所选语言的字幕').replace('{0}', expectedName || item.expectedSourceLang || '?'));
+
+        // 恢复源语言为自动检测，下次打开 popup 不会再弹
+        saveState({ sourceLanguage: SOURCE_LANGUAGE_DEFAULT });
+        setResolvedLanguageValues();
+      }
+
       // 只有在按钮不在 pending 过渡态时才更新按钮文案/意图
       if ($button.dataset.intent !== 'pending') {
         $button.textContent = action.label;
@@ -191,6 +273,7 @@
       }
       $button.dataset.videoId = item.videoId;
       $button.dataset.tabId = item.tabId || '';
+      $button.dataset.targetLanguage = item.targetLanguage || '';
 
       const isIndeterminate = item.status === STATUS.TRANSLATING || item.status === STATUS.PREPARING;
       setProgress($ring, item.progress || 0, isIndeterminate);
@@ -229,9 +312,10 @@
     if ($videoList.children.length === 0) {
       renderLoading();
     }
+    var effectiveTarget = getEffectiveTargetLanguage();
     var response = await sendRuntimeMessage({
       type: 'GET_VIDEO_TASKS',
-      targetLanguage: state.targetLanguage,
+      targetLanguage: effectiveTarget,
       showAllCompleted: showAllCompleted,
     });
     isRefreshing = false;
@@ -241,7 +325,7 @@
       await new Promise(function (r) { return setTimeout(r, 600); });
       response = await sendRuntimeMessage({
         type: 'GET_VIDEO_TASKS',
-        targetLanguage: state.targetLanguage,
+        targetLanguage: effectiveTarget,
         showAllCompleted: showAllCompleted,
       });
     }
@@ -262,7 +346,8 @@
 
     const item = event.target.closest('.video-item');
     if (item?.dataset.videoId) {
-      await sendRuntimeMessage({ type: 'OPEN_VIDEO_TASK', videoId: item.dataset.videoId });
+      var btn = item.querySelector('.video-action');
+      await sendRuntimeMessage({ type: 'OPEN_VIDEO_TASK', videoId: item.dataset.videoId, targetLanguage: (btn && btn.dataset.targetLanguage) || '' });
       window.close();
     }
   }
@@ -277,7 +362,7 @@
     // 即时视觉反馈：按钮立即变为过渡态
     button.disabled = true;
     if (intent === 'open') {
-      await sendRuntimeMessage({ type: 'OPEN_VIDEO_TASK', videoId });
+      await sendRuntimeMessage({ type: 'OPEN_VIDEO_TASK', videoId: videoId, targetLanguage: button.dataset.targetLanguage || '' });
       window.close();
       return;
     }
@@ -300,13 +385,13 @@
 
     try {
       if (intent === 'cancel') {
-        await sendRuntimeMessage({ type: 'CANCEL_VIDEO_TASK', videoId });
+        await sendRuntimeMessage({ type: 'CANCEL_VIDEO_TASK', videoId: videoId, targetLanguage: button.dataset.targetLanguage || '' });
       } else {
         await sendRuntimeMessage({
           type: 'START_VIDEO_TASK',
           videoId,
           tabId,
-          targetLanguage: state.targetLanguage,
+          targetLanguage: getEffectiveTargetLanguage(),
         });
       }
     } finally {
@@ -334,6 +419,8 @@
     const lang = detectUILang();
     _messages = await loadMessages(lang);
     applyI18n(_messages);
+    renderLanguageSelects();
+    setResolvedLanguageValues();
 
     updateConfigBanner();
 
@@ -349,6 +436,15 @@
       if (changes.models || changes.defaultModel) {
         updateConfigBanner();
       }
+      // 语言设置变更时刷新下拉显示
+      if (changes.targetLanguage) {
+        state.targetLanguage = changes.targetLanguage.newValue;
+        setResolvedLanguageValues();
+      }
+      if (changes.sourceLanguage) {
+        state.sourceLanguage = changes.sourceLanguage.newValue;
+        setResolvedLanguageValues();
+      }
     });
 
     // 事件处理器在异步操作前注册，确保立即可用
@@ -363,9 +459,27 @@
     }
     $targetLang.addEventListener('change', async function () {
       await saveState({ targetLanguage: $targetLang.value });
+      await checkAndShowSettingsPendingToast();
+      await refreshVideos();
+    });
+    $sourceLang.addEventListener('change', async function () {
+      await saveState({ sourceLanguage: $sourceLang.value });
+      await checkAndShowSettingsPendingToast();
       await refreshVideos();
     });
     $videoList.addEventListener('click', handleClick);
+
+    async function checkAndShowSettingsPendingToast() {
+      try {
+        var effectiveTarget = getEffectiveTargetLanguage();
+        var tasksResp = await sendRuntimeMessage({ type: 'GET_VIDEO_TASKS', targetLanguage: effectiveTarget, showAllCompleted: false });
+        var items = tasksResp.items || [];
+        var hasPending = items.some(function (t) { return t.status === STATUS.TRANSLATING || t.status === STATUS.PREPARING; });
+        if (hasPending) {
+          showToast(t('toast.settingsPending', '翻译中的视频不受影响'), t('toast.settingsPendingSub', '新设置在下次翻译时生效'));
+        }
+      } catch (_err) { /* skip toast on error */ }
+    }
     refreshTimer = setInterval(refreshVideos, 1500);
     window.addEventListener('unload', function () {
       if (refreshTimer) clearInterval(refreshTimer);

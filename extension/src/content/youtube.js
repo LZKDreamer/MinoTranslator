@@ -5,9 +5,12 @@
     window.addEventListener('online', checkForVideo);
     // 监听 YouTube SPA 导航事件（用于从首页/搜索页点击视频后的检测）
     document.addEventListener('yt-navigate-finish', checkForVideo);
-    // 导航开始时立即清除旧字幕，防止残留 1 秒
+    // 导航开始时：仅在新视频切换时清除旧字幕
     document.addEventListener('yt-navigate-start', function () {
-      renderer.clear();
+      var newId = getCurrentVideoId();
+      if (newId !== currentVideoId) {
+        renderer.clear();
+      }
     });
 
     if (!navigator.onLine) {
@@ -53,6 +56,14 @@
         startTranslation(request.targetLanguage).then(sendResponse).catch(function (err) {
           sendResponse({ error: err.message });
         });
+        return true;
+      }
+
+      if (request.type === MESSAGE_TYPE.PURGE_MEMORY_CACHE) {
+        if (typeof clearMemoryCache === 'function') {
+          clearMemoryCache();
+        }
+        sendResponse({ ok: true });
         return true;
       }
 
@@ -114,13 +125,19 @@
       }
     }
 
+    let currentTargetLanguage = '';
+
     async function detectVideo(targetLanguage) {
+      currentTargetLanguage = targetLanguage || '';
       checkForVideo();
       const videoId = currentVideoId || getCurrentVideoId();
       if (!videoId) return { needsTranslation: false, error: 'Not a YouTube video page' };
 
+      const settings = await loadSettings(targetLanguage);
+      var preferredSourceLang = settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
+
       // 快速检测：仅检查字幕元数据，不下载完整字幕文件（约快 10-30 倍）
-      const quickInfo = await quickDetectSubtitles(videoId);
+      const quickInfo = await quickDetectSubtitles(videoId, preferredSourceLang);
       if (!quickInfo.available) {
         return { needsTranslation: false, error: 'No subtitles available' };
       }
@@ -130,7 +147,6 @@
         return { needsTranslation: false, sourceLanguage };
       }
 
-      const settings = await loadSettings(targetLanguage);
       settings.videoId = videoId;
       settings.sourceLanguage = sourceLanguage || 'unknown';
 
@@ -141,7 +157,7 @@
       if (existingTask && existingTask.status === STATUS.COMPLETED && existingTask.targetLanguage === targetLanguage) {
         // 有已完成翻译缓存 → 加载完整数据并尝试恢复
         try {
-          const subtitleData = await fetchSubtitles(videoId);
+          const subtitleData = await fetchSubtitles(videoId, preferredSourceLang);
           if (subtitleData && subtitleData.sentences) {
             return {
               needsTranslation: true,
@@ -186,10 +202,12 @@
       resetInterceptorState();
 
       const settings = await loadSettings(targetLanguage);
+      var preferredSourceLang = settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
+      debugLog('YT-Translator', 'startTranslation: sourceLanguage=' + preferredSourceLang + ' targetLanguage=' + settings.targetLanguage);
       reportTask({ status: STATUS.PREPARING, videoId, title: getCurrentTitle(), targetLanguage: settings.targetLanguage, progress: 0 });
 
       // 获取字幕 + 本地断句
-      const subtitleData = await fetchSubtitles(videoId);
+      const subtitleData = await fetchSubtitles(videoId, preferredSourceLang);
       if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
         hasActiveTranslation = false;
         reportTask({ status: STATUS.FAILED, error: 'No subtitles available' });
@@ -204,6 +222,13 @@
       settings.videoId = videoId;
       settings.sourceLanguage = subtitleData.language || 'unknown';
       settings.videoTitle = getCurrentTitle();
+
+      // 手动源语言与检测不符时提示
+      if (preferredSourceLang && preferredSourceLang !== 'auto' && subtitleData.language && normalizeLanguageCode(preferredSourceLang) !== normalizeLanguageCode(subtitleData.language)) {
+        console.warn('[YT-Translator] sourceLang mismatch: selected=' + preferredSourceLang + ' detected=' + subtitleData.language);
+        // 通过 reportTask 通知 UI 层
+        reportTask({ sourceLangFallback: true, expectedSourceLang: preferredSourceLang, actualSourceLang: subtitleData.language });
+      }
 
       // 初始化渲染器（先显示原文）
       var cues = subtitleData.sentences.map(function (s) {
@@ -279,7 +304,7 @@
           }
         }
 
-        reportTask({ status: STATUS.COMPLETED, cues: cues });
+        reportTask({ status: STATUS.COMPLETED, cues: cues, progress: 100 });
       } catch (err) {
         videoEl.removeEventListener('seeking', onSeek);
         hasActiveTranslation = false;
@@ -297,7 +322,8 @@
       const videoEl = document.querySelector('video');
       if (!videoId || !videoEl) throw new Error('No active YouTube video');
       const settings = await loadSettings(targetLanguage);
-      const subtitleData = await fetchSubtitles(videoId);
+      var preferredSourceLang = settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
+      const subtitleData = await fetchSubtitles(videoId, preferredSourceLang);
       if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
         throw new Error('No subtitles available');
       }
@@ -369,8 +395,9 @@
       }
       const defaults = {
         translationEnabled: true,
+        sourceLanguage: SOURCE_LANGUAGE_DEFAULT,
         subtitleMode: 'bilingual',
-        targetLanguage: targetLanguage || 'zh-CN',
+        targetLanguage: targetLanguage || TARGET_LANGUAGE_DEFAULT,
         fontSize: 'medium',
         subPosition: 'above',
         bgOpacity: 0.6,
@@ -388,9 +415,10 @@
           },
         },
       };
+      const rawTargetLang = targetLanguage || rawSettings.targetLanguage || defaults.targetLanguage;
       const settings = Object.assign({}, defaults, rawSettings, {
         translationEnabled: true,
-        targetLanguage: targetLanguage || rawSettings.targetLanguage || defaults.targetLanguage,
+        targetLanguage: (rawTargetLang === 'auto') ? resolveLanguage() : rawTargetLang,
       });
       settings.models = Object.assign({}, defaults.models, rawSettings.models || {});
       return settings;
@@ -402,6 +430,7 @@
         payload: Object.assign({
           videoId: currentVideoId || getCurrentVideoId(),
           title: getCurrentTitle(),
+          targetLanguage: currentTargetLanguage || '',
           thumbnailUrl: currentVideoId ? 'https://i.ytimg.com/vi/' + currentVideoId + '/default.jpg' : '',
         }, payload),
       }, function () {

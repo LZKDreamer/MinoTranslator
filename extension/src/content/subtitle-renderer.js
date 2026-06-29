@@ -113,12 +113,13 @@ class SubtitleRenderer {
       return;
     }
 
-    // 视频播放结束 → 隐藏字幕并停止渲染循环
+    // 视频播放结束 → 隐藏字幕但保持渲染循环（用户可能拖进度条重播）
     if (this.video.ended) {
       if (this.currentCueIndex !== -1) {
         this.currentCueIndex = -1;
         this.renderCue(-1);
       }
+      this.rafId = requestAnimationFrame(() => this.renderLoop());
       return;
     }
 

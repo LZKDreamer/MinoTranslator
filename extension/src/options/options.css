@@ -709,6 +709,32 @@ body {
   transform: translateX(-50%) translateY(0);
 }
 
+.toast-sub {
+  display: block;
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+/* ── Data Management ─────────────────────── */
+.section-data {
+  /* inherits full .section card style */
+}
+
+.data-mgmt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-desc {
+  font-size: 13px;
+  color: var(--color-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
 
 
 

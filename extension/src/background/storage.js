@@ -6,9 +6,10 @@
 const StorageManager = (() => {
   const DEFAULTS = {
     uiLanguage: 'auto',
+    sourceLanguage: 'auto',
     translationEnabled: true,
     subtitleMode: 'bilingual',
-    targetLanguage: 'zh-CN',
+    targetLanguage: 'auto',
     fontSize: 'medium',
     subPosition: 'below',
     bgOpacity: 0.6,

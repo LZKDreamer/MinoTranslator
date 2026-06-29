@@ -37,6 +37,16 @@
     });
   }
 
+  function t(key, fallback) {
+    var parts = key.split('.');
+    var val = _messages;
+    for (var pi = 0; pi < parts.length; pi++) {
+      val = val && val[parts[pi]];
+      if (!val) return fallback || key;
+    }
+    return val;
+  }
+
   /* ── Presets ──────────────────────────── */
   const MODEL_PRESETS = {
     'agnes-ai': {
@@ -57,9 +67,10 @@
   const CONFIG_VERSION = 2; // bump when model presets change to trigger migration
   const DEFAULTS = {
     uiLanguage: 'auto',
+    sourceLanguage: SOURCE_LANGUAGE_DEFAULT,
     translationEnabled: true,
     subtitleMode: 'bilingual',
-    targetLanguage: 'zh-CN',
+    targetLanguage: TARGET_LANGUAGE_DEFAULT,
     fontSize: 'medium',
     subPosition: 'above',
     bgOpacity: 0.6,
@@ -98,6 +109,7 @@
   const $testModelBtn = document.getElementById('testModelBtn');
   const $deleteModelBtn = document.getElementById('deleteModelBtn');
   const $addModelBtn = document.getElementById('addModelBtn');
+  const $sourceLanguage = document.getElementById('sourceLanguage');
   const $targetLanguage = document.getElementById('targetLanguage');
   const $bgOpacity = document.getElementById('bgOpacity');
   const $bgOpacityValue = document.getElementById('bgOpacityValue');
@@ -107,6 +119,7 @@
   const $floatingEnable = document.getElementById('floatingEnable');
   const $floatPositionBlock = document.getElementById('floatPositionBlock');
   const $versionDisplay = document.getElementById('versionDisplay');
+  const $clearCacheBtn = document.getElementById('clearCacheBtn');
 
   /* ── Storage ───────────────────────────── */
   /**
@@ -158,7 +171,7 @@
   async function loadState() {
     try {
       const result = await chrome.storage.sync.get([
-        'uiLanguage', 'translationEnabled', 'subtitleMode',
+        'uiLanguage', 'sourceLanguage', 'translationEnabled', 'subtitleMode',
         'targetLanguage', 'fontSize', 'subPosition', 'bgOpacity',
         'originalTextColor', 'translatedTextColor', 'subBgColor',
         'floatingTranslateEnabled', 'floatPosition', 'defaultModel', 'models',
@@ -208,7 +221,8 @@
   }
 
   function applyState() {
-    $targetLanguage.value = state.targetLanguage;
+
+    setResolvedLanguageValues();
 
     // UI Language
     const langRadios = document.querySelectorAll('input[name="uiLang"]');
@@ -479,7 +493,7 @@
   });
 
   /* ── Toast ─────────────────────────────── */
-  function showToast(msg) {
+  function showToast(msg, subMsg) {
     let toast = document.querySelector('.toast');
     if (!toast) {
       toast = document.createElement('div');
@@ -487,9 +501,56 @@
       document.body.appendChild(toast);
     }
     toast.textContent = msg;
+    if (subMsg) {
+      var $sub = document.createElement('span');
+      $sub.className = 'toast-sub';
+      $sub.textContent = subMsg;
+      toast.appendChild($sub);
+    }
     toast.classList.add('visible');
+    toast.hidden = false;
     clearTimeout(toast._hide);
-    toast._hide = setTimeout(() => toast.classList.remove('visible'), 3000);
+    toast._hide = setTimeout(function () { toast.classList.remove('visible'); }, TOAST_DURATION_MS);
+  }
+
+  /* ── Language Selects ───────────────────── */
+  function renderLanguageSelects() {
+    // 源语言下拉
+    $sourceLanguage.innerHTML = '';
+    for (var i = 0; i < SOURCE_LANGUAGES.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = SOURCE_LANGUAGES[i].value;
+      opt.textContent = t(SOURCE_LANGUAGES[i].labelKey, SOURCE_LANGUAGES[i].value);
+      $sourceLanguage.appendChild(opt);
+    }
+    // 目标语言下拉（不含 auto）
+    $targetLanguage.innerHTML = '';
+    for (var j = 0; j < TARGET_LANGUAGES.length; j++) {
+      var topt = document.createElement('option');
+      topt.value = TARGET_LANGUAGES[j].value;
+      topt.textContent = t(TARGET_LANGUAGES[j].labelKey, TARGET_LANGUAGES[j].value);
+      $targetLanguage.appendChild(topt);
+    }
+  }
+
+  function setResolvedLanguageValues() {
+    // 源语言：直接取存储值
+    $sourceLanguage.value = state.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
+    // 目标语言：auto 时解析为浏览器语言
+    var targetVal = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
+    if (targetVal === 'auto') {
+      targetVal = resolveLanguage();
+      if (!$targetLanguage.querySelector('option[value="' + targetVal + '"]')) {
+        targetVal = TARGET_LANGUAGES[0].value;
+      }
+    }
+    $targetLanguage.value = targetVal;
+  }
+
+  function getEffectiveTargetLanguage() {
+    var val = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
+    if (val === 'auto') return resolveLanguage();
+    return val;
   }
 
   /* ── Other Event Bindings ──────────────── */
@@ -502,13 +563,53 @@
         const lang = el.value === 'auto' ? detectUILang() : el.value;
         _messages = await loadMessages(lang);
         applyI18n(_messages);
+        renderLanguageSelects();
+        setResolvedLanguageValues();
       }
     });
   });
 
-  $targetLanguage.addEventListener('change', () => {
+  $targetLanguage.addEventListener('change', function () {
     saveState({ targetLanguage: $targetLanguage.value });
+    checkAndShowSettingsPendingToast();
   });
+
+  $sourceLanguage.addEventListener('change', function () {
+    saveState({ sourceLanguage: $sourceLanguage.value });
+    checkAndShowSettingsPendingToast();
+  });
+
+  async function checkAndShowSettingsPendingToast() {
+    try {
+      var effectiveTarget = getEffectiveTargetLanguage();
+      var resp = await chrome.runtime.sendMessage({ type: 'GET_VIDEO_TASKS', targetLanguage: effectiveTarget, showAllCompleted: false });
+      var items = (resp && resp.items) ? resp.items : [];
+      var hasPending = items.some(function (t) { return t.status === STATUS.TRANSLATING || t.status === STATUS.PREPARING; });
+      if (hasPending) {
+        showToast(t('toast.settingsPending', '翻译中的视频不受影响'), t('toast.settingsPendingSub', '新设置在下次翻译时生效'));
+      }
+    } catch (_err) { /* skip */ }
+  }
+
+  if ($clearCacheBtn) {
+    $clearCacheBtn.addEventListener('click', async function () {
+      if ($clearCacheBtn.disabled) return;
+      $clearCacheBtn.disabled = true;
+      $clearCacheBtn.textContent = t('options.clearCacheLoading', '清除中…');
+      try {
+        var resp = await chrome.runtime.sendMessage({ type: MESSAGE_TYPE.CLEAR_CACHE });
+        if (resp && resp.ok) {
+          showToast(t('toast.cacheCleared', '缓存已清除'));
+        } else {
+          showToast(t('toast.cacheClearFailed', '清除失败，请重试'));
+        }
+      } catch (_err) {
+        showToast(t('toast.cacheClearFailed', '清除失败，请重试'));
+      }
+      $clearCacheBtn.disabled = false;
+      $clearCacheBtn.textContent = t('options.clearCacheBtn', '清除字幕缓存');
+    });
+  }
 
   document.querySelectorAll('input[name="subtitleMode"]').forEach(el => {
     el.addEventListener('change', () => {
@@ -594,11 +695,23 @@
 
   /* ── Init ──────────────────────────────── */
   async function init() {
-    const lang = detectUILang();
+    // 先加载用户设置，获取 uiLanguage 偏好
+    await loadState();
+    var lang = (state.uiLanguage && state.uiLanguage !== 'auto') ? state.uiLanguage : detectBrowserLang();
     _messages = await loadMessages(lang);
     applyI18n(_messages);
+    renderLanguageSelects();
+    setResolvedLanguageValues();
     setVersion();
-    await loadState();
+  }
+
+  function detectBrowserLang() {
+    var raw = chrome.i18n.getUILanguage();
+    if (SUPPORTED.includes(raw)) return raw;
+    var prefix = raw.split('-')[0];
+    if (prefix === 'zh') return 'zh-CN';
+    if (prefix === 'en') return 'en';
+    return FALLBACK;
   }
 
   init();

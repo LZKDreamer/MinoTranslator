@@ -12,12 +12,47 @@ const CACHE_RETENTION_MS = 10 * 24 * 60 * 60 * 1000;
 // 任务持久化——SW 重启后恢复已完成翻译
 const STORAGE_TASKS_KEY = 'ytVideoTasks';
 
+function makeTaskKey(videoId, targetLanguage) {
+  return videoId + ':' + (targetLanguage || 'unknown');
+}
+
+function parseTaskKey(key) {
+  var idx = key.indexOf(':');
+  if (idx === -1) return { videoId: key, targetLanguage: 'unknown' };
+  return { videoId: key.slice(0, idx), targetLanguage: key.slice(idx + 1) };
+}
+
+function findTaskByVideoId(videoId, targetLanguage) {
+  if (targetLanguage) {
+    var key = makeTaskKey(videoId, targetLanguage);
+    return videoTasks.get(key);
+  }
+  // 遍历找第一个匹配的
+  for (var entry of videoTasks) {
+    var parsed = parseTaskKey(entry[0]);
+    if (parsed.videoId === videoId) return entry[1];
+  }
+  return undefined;
+}
+
+function deleteTasksByVideoId(videoId) {
+  var deleted = false;
+  for (var key of videoTasks.keys()) {
+    var parsed = parseTaskKey(key);
+    if (parsed.videoId === videoId) {
+      videoTasks.delete(key);
+      deleted = true;
+    }
+  }
+  return deleted;
+}
+
 async function persistTasks() {
   try {
     const tasks = {};
-    for (const [videoId, task] of videoTasks) {
+    for (const [key, task] of videoTasks) {
       if (task.status !== STATUS.CANCELED && task.status !== STATUS.AVAILABLE) {
-        tasks[videoId] = task;
+        tasks[key] = task;
       }
     }
     await chrome.storage.local.set({ [STORAGE_TASKS_KEY]: tasks });
@@ -29,9 +64,9 @@ async function loadPersistedTasks() {
     const data = await chrome.storage.local.get(STORAGE_TASKS_KEY);
     const tasks = data[STORAGE_TASKS_KEY];
     if (tasks) {
-      for (const [videoId, task] of Object.entries(tasks)) {
+      for (const [key, task] of Object.entries(tasks)) {
         if (task.status !== STATUS.CANCELED) {
-          videoTasks.set(videoId, task);
+          videoTasks.set(key, task);
         }
       }
     }
@@ -52,14 +87,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 const messageHandlers = {
   async GET_VIDEO_TASKS(request) {
-    return getVideoTasks(request.targetLanguage || 'zh-CN', request.showAllCompleted);
+    return getVideoTasks(request.targetLanguage || resolveLanguage(), request.showAllCompleted);
   },
 
   async START_VIDEO_TASK(request) {
     const videoId = request.videoId || '';
     if (!videoId) return { error: 'Missing videoId' };
 
-    const existing = videoTasks.get(videoId);
+    const targetLanguage = request.targetLanguage || resolveLanguage();
+    const taskKey = makeTaskKey(videoId, targetLanguage);
+    const existing = videoTasks.get(taskKey);
+
     if (!existing && getActiveTaskCount() >= MAX_VIDEO_TASKS) {
       return { error: chrome.i18n.getMessage('maxVideoTasks') || '最多同时处理 3 个视频任务' };
     }
@@ -75,7 +113,7 @@ const messageHandlers = {
 
     const prepared = await sendTabMessage(tabId, {
       type: 'PREPARE_VIDEO_TRANSLATION',
-      targetLanguage: request.targetLanguage || existing?.targetLanguage || 'zh-CN',
+      targetLanguage: targetLanguage,
     }, 30000);
     if (prepared.error) return prepared;
     if (!prepared.cues || prepared.cues.length === 0) {
@@ -89,7 +127,6 @@ const messageHandlers = {
       return { error: chrome.i18n.getMessage('noApiKey') || '请先在设置中配置 API Key' };
     }
 
-    const targetLanguage = request.targetLanguage || settings.targetLanguage || 'zh-CN';
     const apiUrl = model.apiUrl.replace(/\/+$/, '') + '/chat/completions';
 
     // 先创建任务（status=translating），让 popup 立即看到进展
@@ -109,7 +146,7 @@ const messageHandlers = {
       modelKey, modelId: model.modelId, apiUrl, apiKey: model.apiKey,
       updatedAt: Date.now(),
     };
-    videoTasks.set(videoId, task);
+    videoTasks.set(taskKey, task);
     persistTasks();
 
     // 触发 content script 开始批量翻译（异步，不阻塞返回）
@@ -123,19 +160,29 @@ const messageHandlers = {
 
   async CANCEL_VIDEO_TASK(request) {
     const videoId = request.videoId || '';
+    const targetLanguage = request.targetLanguage || '';
     if (!videoId) return { error: 'Missing videoId' };
-    videoTasks.delete(videoId);
+    if (targetLanguage) {
+      videoTasks.delete(makeTaskKey(videoId, targetLanguage));
+    } else {
+      deleteTasksByVideoId(videoId);
+    }
     persistTasks();
     return { ok: true };
   },
 
   async OPEN_VIDEO_TASK(request) {
     const videoId = request.videoId || '';
-    const task = videoTasks.get(videoId);
+    const targetLanguage = request.targetLanguage || '';
+    var task;
+    if (targetLanguage) {
+      task = videoTasks.get(makeTaskKey(videoId, targetLanguage));
+    } else {
+      task = findTaskByVideoId(videoId);
+    }
     const url = task?.url || getYouTubeUrl(videoId);
     const tab = await openOrFocusVideo(url);
     if (task && task.status === STATUS.COMPLETED) {
-      // 等待标签页加载完成后再发送字幕（setTimeout 不可靠）
       await waitForTabReady(tab.id, 15000);
       await new Promise(r => setTimeout(r, 600));
       await applyTaskToTab(tab.id, task);
@@ -144,16 +191,21 @@ const messageHandlers = {
   },
 
   async VIDEO_TASK_PROGRESS(request) {
-    const videoId = request.videoId || request.payload?.videoId;
+    const payload = request.payload || {};
+    const videoId = request.videoId || payload.videoId;
     if (!videoId) return { ok: false };
-    const previous = videoTasks.get(videoId) || { videoId };
+    const targetLanguage = payload.targetLanguage || '';
+    const taskKey = targetLanguage ? makeTaskKey(videoId, targetLanguage) : '';
+    const previous = (taskKey && videoTasks.get(taskKey)) || findTaskByVideoId(videoId) || { videoId };
     const next = {
       ...previous,
-      ...request.payload,
+      ...payload,
       videoId,
       updatedAt: Date.now(),
     };
-    videoTasks.set(videoId, next);
+    // 用新 key 存储（可能 targetLanguage 变了）
+    const storeKey = makeTaskKey(videoId, next.targetLanguage || targetLanguage || previous.targetLanguage || 'unknown');
+    videoTasks.set(storeKey, next);
     persistTasks();
     if (next.status === STATUS.COMPLETED) {
       await applyTaskToOpenTabs(next);
@@ -163,7 +215,11 @@ const messageHandlers = {
   },
 
   async VIDEO_TASK_GROUP_TRANSLATED(request) {
-    const task = videoTasks.get(request.videoId);
+    const videoId = request.videoId;
+    const targetLanguage = request.targetLanguage || '';
+    const taskKey = makeTaskKey(videoId, targetLanguage);
+    var task = videoTasks.get(taskKey);
+    if (!task) task = findTaskByVideoId(videoId);
     if (!task) return { ok: false };
     const payload = request.payload || {};
     (payload.cueIndices || []).forEach((cueIndex, idx) => {
@@ -173,7 +229,7 @@ const messageHandlers = {
       }
     });
     task.updatedAt = Date.now();
-    videoTasks.set(task.videoId, task);
+    videoTasks.set(makeTaskKey(task.videoId, task.targetLanguage), task);
     persistTasks();
     await applyTaskToOpenTabs(task);
     return { ok: true };
@@ -264,26 +320,73 @@ const messageHandlers = {
     debugLogBuffer.length = 0;
     return { ok: true };
   },
+
+  async CLEAR_CACHE() {
+    try {
+      // 清除翻译缓存 ytSubCache:*
+      var all = await chrome.storage.local.get(null);
+      var toDelete = [];
+      for (var key in all) {
+        if (all.hasOwnProperty(key) && key.indexOf(CACHE_PREFIX) === 0) {
+          toDelete.push(key);
+        }
+      }
+      var cacheCount = toDelete.length;
+
+      // 也清除视频任务持久化数据
+      if (all.hasOwnProperty(STORAGE_TASKS_KEY)) {
+        toDelete.push(STORAGE_TASKS_KEY);
+      }
+
+      if (toDelete.length > 0) {
+        await chrome.storage.local.remove(toDelete);
+      }
+
+      // 清空内存中的视频任务
+      videoTasks.clear();
+
+      // 广播到所有 YouTube tab 清空内存缓存
+      var tabs = await chrome.tabs.query({ url: ['https://*.youtube.com/*'] });
+      for (var ti = 0; ti < tabs.length; ti++) {
+        sendTabMessage(tabs[ti].id, { type: MESSAGE_TYPE.PURGE_MEMORY_CACHE }, 3000).catch(function () {});
+      }
+
+      return { ok: true, cacheCount: cacheCount, tasksCleared: true };
+    } catch (err) {
+      console.warn('[Cache] clear error:', err);
+      return { ok: false, error: err.message };
+    }
+  },
 };
 
 async function getVideoTasks(targetLanguage, showAllCompleted) {
   const tabs = await chrome.tabs.query({ url: ['https://*.youtube.com/*'] });
   for (const tab of tabs.filter(isYouTubeVideoTab)) {
     const videoId = extractVideoIdFromUrl(tab.url || '');
-    const existing = videoTasks.get(videoId);
-    if (existing && (existing.status === STATUS.TRANSLATING || existing.status === STATUS.PREPARING || existing.status === STATUS.FAILED)) {
-      existing.tabId = tab.id;
-      existing.url = tab.url || existing.url;
-      videoTasks.set(videoId, existing);
+    const taskKey = makeTaskKey(videoId, targetLanguage);
+    const existing = videoTasks.get(taskKey);
+
+    // 活跃任务（翻译中/准备中/失败）——跨所有语言
+    var activeTask = null;
+    for (var entry of videoTasks) {
+      var parsed = parseTaskKey(entry[0]);
+      if (parsed.videoId === videoId && (entry[1].status === STATUS.TRANSLATING || entry[1].status === STATUS.PREPARING || entry[1].status === STATUS.FAILED)) {
+        activeTask = entry[1];
+        break;
+      }
+    }
+    if (activeTask) {
+      activeTask.tabId = tab.id;
+      activeTask.url = tab.url || activeTask.url;
+      videoTasks.set(makeTaskKey(videoId, activeTask.targetLanguage), activeTask);
       persistTasks();
       continue;
     }
 
-    if (existing && existing.targetLanguage === targetLanguage && existing.status === STATUS.COMPLETED) {
+    if (existing && existing.status === STATUS.COMPLETED) {
       existing.tabId = tab.id;
-      videoTasks.set(videoId, existing);
+      videoTasks.set(taskKey, existing);
       persistTasks();
-      // 自动应用已完成翻译的字幕到当前标签页
       applyTaskToTab(tab.id, existing).catch(() => {});
       continue;
     }
@@ -306,13 +409,12 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
       progress: detected.progress || 0,
       completedGroups: detected.completedGroups || 0,
       totalGroups: detected.totalGroups || 0,
-      cues: detected.cues || existing?.cues || [],
-      translations: existing?.translations || {},
+      cues: detected.cues || [],
+      translations: {},
       updatedAt: Date.now(),
     };
-    videoTasks.set(videoId, item);
+    videoTasks.set(taskKey, item);
     persistTasks();
-    // 如果检测到已完成翻译，自动应用字幕到当前标签页
     if (detected.status === STATUS.COMPLETED) {
       applyTaskToTab(tab.id, item).catch(() => {});
     }
@@ -328,7 +430,6 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
         .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       const MAX_COMPLETED_SHOWN = 10;
       const hasMoreCompleted = !showAllCompleted && done.length > MAX_COMPLETED_SHOWN;
-      // 活跃任务最多占 MAX_VIDEO_TASKS 个，已完成任务默认显示最近 10 个
       const completedToShow = showAllCompleted ? done : done.slice(0, MAX_COMPLETED_SHOWN);
       return [...active.slice(0, MAX_VIDEO_TASKS), ...completedToShow];
     })(),
@@ -384,7 +485,7 @@ function waitForTabReady(tabId, timeoutMs) {
 }
 
 async function notifyComplete(task) {
-  await chrome.notifications.create('yt-translate-complete-' + task.videoId, {
+  await chrome.notifications.create('yt-translate-complete-' + makeTaskKey(task.videoId, task.targetLanguage), {
     type: 'basic',
     iconUrl: chrome.runtime.getURL('icons/icon128.png'),
     title: chrome.i18n.getMessage('translationComplete') || '字幕翻译完成',
@@ -478,12 +579,12 @@ async function performTaskCleanup() {
   try {
     const now = Date.now();
     var cleaned = 0;
-    for (const [videoId, task] of videoTasks) {
+    for (const [key, task] of videoTasks) {
       if (task.status === STATUS.TRANSLATING || task.status === STATUS.PREPARING) {
         if (now - (task.updatedAt || 0) > TASK_STALE_MS) {
           task.status = STATUS.FAILED;
           task.error = 'Translation timed out (no progress for 30 minutes)';
-          videoTasks.set(videoId, task);
+          videoTasks.set(key, task);
           cleaned++;
         }
       }
@@ -528,8 +629,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.notifications.onClicked.addListener((notificationId) => {
   const prefix = 'yt-translate-complete-';
   if (!notificationId.startsWith(prefix)) return;
-  const videoId = notificationId.slice(prefix.length);
-  const task = videoTasks.get(videoId);
-  openOrFocusVideo(task?.url || getYouTubeUrl(videoId)).catch(() => {});
+  const taskKey = notificationId.slice(prefix.length);
+  const task = videoTasks.get(taskKey);
+  openOrFocusVideo(task?.url || getYouTubeUrl(parseTaskKey(taskKey).videoId)).catch(() => {});
   chrome.notifications.clear(notificationId).catch(() => {});
 });

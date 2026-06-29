@@ -67,21 +67,22 @@
       </button>
     </section>
 
-    <section class="section" id="section-target-language">
-      <h2 class="section-title" data-i18n="options.targetLangSection">目标语言</h2>
+    <!-- ─── Section 2: Language Settings ─── -->
+    <section class="section" id="section-language-settings">
+      <h2 class="section-title" data-i18n="options.langSection">语言设置</h2>
+      <label class="setting-row">
+        <span class="setting-label" data-i18n="options.sourceLanguage">源语言</span>
+        <select id="sourceLanguage" class="setting-select"></select>
+      </label>
       <label class="setting-row">
         <span class="setting-label" data-i18n="options.targetLanguage">目标语言</span>
-        <select id="targetLanguage" class="setting-select">
-          <option value="zh-CN">简体中文</option>
-          <option value="zh-TW">繁体中文</option>
-          <option value="en">English</option>
-        </select>
+        <select id="targetLanguage" class="setting-select"></select>
       </label>
     </section>
 
-    <!-- ─── Section 2: UI Language ─── -->
+    <!-- ─── Section 3: UI Language ─── -->
     <section class="section" id="section-language">
-      <h2 class="section-title" data-i18n="options.langSection">界面语言</h2>
+      <h2 class="section-title" data-i18n="options.uiLangSection">界面语言</h2>
 
       <div class="radio-group">
         <label class="radio-row">
@@ -231,7 +232,16 @@
       </div>
     </section>
 
-    <!-- ─── Section 5: About ─── -->
+    <!-- ─── Section 6: Data Management ─── -->
+    <section class="section section-data" id="section-data">
+      <h2 class="section-title" data-i18n="options.dataSection">数据管理</h2>
+      <div class="data-mgmt">
+        <p class="data-desc" data-i18n="options.clearCacheDesc">清除所有已缓存的字幕翻译数据。下次翻译时将从 AI 模型重新获取译文。</p>
+        <button id="clearCacheBtn" class="btn btn-ghost btn-full" data-i18n="options.clearCacheBtn">清除字幕缓存</button>
+      </div>
+    </section>
+
+    <!-- ─── Section 7: About ─── -->
     <section class="section section-about" id="section-about">
       <h2 class="section-title" data-i18n="options.aboutSection">关于</h2>
       <div class="about-info">
@@ -240,8 +250,10 @@
       </div>
     </section>
   </div>
+  <div id="toast" class="toast" hidden></div>
 
   <script src="/src/shared/crypto-utils.js"></script>
+  <script src="/src/shared/constants.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

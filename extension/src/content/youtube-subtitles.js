@@ -9,22 +9,30 @@ const TRANSLATION_MAX_RETRIES = 2;
 const TRANSLATION_RETRY_BASE_DELAY_MS = 1200;
 const subtitleTranslationCache = new Map();
 
+/**
+ * 清空内存中的翻译缓存（由 service-worker 触发）
+ */
+function clearMemoryCache() {
+  subtitleTranslationCache.clear();
+  debugLog('YT-Subs', 'clearMemoryCache: in-memory translation cache cleared');
+}
+
 // translate-prompt.js 已由 manifest 加载，提供 window.TranslatePrompt
 
 /**
  * 从 YouTube 页面提取字幕数据（3 级降级）
  */
-async function fetchSubtitles(videoId) {
-  debugLog('YT-Subs', 'fetchSubtitles start: ' + videoId);
+async function fetchSubtitles(videoId, preferredSourceLang) {
+  debugLog('YT-Subs', 'fetchSubtitles start: ' + videoId + ' preferredSourceLang=' + (preferredSourceLang || 'none'));
 
   // 方法1: 从 ytInitialPlayerResponse 提取
-  let captionsData = extractFromPlayerResponse();
+  let captionsData = extractFromPlayerResponse(preferredSourceLang);
   debugLog('YT-Subs', 'extractFromPlayerResponse: ' + (captionsData ? 'found' : 'not found'));
 
   // 方法2: 重新请求页面 HTML（fallback）
   if (!captionsData) {
     debugLog('YT-Subs', 'trying fetchFromPage fallback...');
-    captionsData = await fetchFromPage(videoId);
+    captionsData = await fetchFromPage(videoId, preferredSourceLang);
     debugLog('YT-Subs', 'fetchFromPage: ' + (captionsData ? 'found' : 'not found'));
   }
 
@@ -34,7 +42,7 @@ async function fetchSubtitles(videoId) {
   if (captionsData) {
     const trackUrl = captionsData.baseUrl;
     debugLog('YT-Subs', 'track URL: ' + trackUrl + ' lang: ' + language);
-    rawData = await fetchSubtitleFile(trackUrl);
+    rawData = await fetchSubtitleFile(trackUrl, preferredSourceLang);
   }
 
   // 方法3: 拦截 YouTube 播放器自己的字幕请求（绕过 PoToken）
@@ -90,19 +98,19 @@ const quickDetectCache = new Map();
  * 快速检测字幕是否可用（仅检查元数据，不下载字幕文件）
  * 结果按 videoId 缓存
  */
-async function quickDetectSubtitles(videoId) {
+async function quickDetectSubtitles(videoId, preferredSourceLang) {
   var cached = quickDetectCache.get(videoId);
   if (cached) return cached;
 
-  debugLog('YT-Subs', 'quickDetectSubtitles start: ' + videoId);
+  debugLog('YT-Subs', 'quickDetectSubtitles start: ' + videoId + ' preferredSourceLang=' + (preferredSourceLang || 'none'));
 
-  let captionsData = extractFromPlayerResponse();
+  let captionsData = extractFromPlayerResponse(preferredSourceLang);
   debugLog('YT-Subs', 'quickDetect extractFromPlayerResponse: ' + (captionsData ? 'found' : 'not found'));
 
   if (!captionsData) {
     debugLog('YT-Subs', 'quickDetect trying fetchFromPage...');
     try {
-      captionsData = await fetchFromPage(videoId);
+      captionsData = await fetchFromPage(videoId, preferredSourceLang);
       debugLog('YT-Subs', 'quickDetect fetchFromPage: ' + (captionsData ? 'found' : 'not found'));
     } catch (e) {
       debugLog('YT-Subs', 'quickDetect fetchFromPage failed: ' + e.message);
@@ -129,20 +137,21 @@ async function quickDetectSubtitles(videoId) {
   return result;
 }
 
-async function getSubtitleTrackInfo(videoId) {
-  let captionsData = extractFromPlayerResponse();
-  if (!captionsData) captionsData = await fetchFromPage(videoId);
+async function getSubtitleTrackInfo(videoId, preferredSourceLang) {
+  let captionsData = extractFromPlayerResponse(preferredSourceLang);
+  if (!captionsData) captionsData = await fetchFromPage(videoId, preferredSourceLang);
   if (!captionsData) return null;
   return { language: captionsData.language || 'unknown', baseUrl: captionsData.baseUrl || '' };
 }
 
 /**
  * 从页面嵌入的 ytInitialPlayerResponse 中提取字幕数据
+ * @param {string} [preferredLang] - 偏好语言代码，'auto' 时启用智能匹配
  */
-function extractFromPlayerResponse() {
+function extractFromPlayerResponse(preferredLang) {
   try {
     const scripts = document.querySelectorAll('script');
-    debugLog('YT-Subs', 'extractFromPlayerResponse: checking ' + scripts.length + ' script tags');
+    debugLog('YT-Subs', 'extractFromPlayerResponse: checking ' + scripts.length + ' script tags, preferredLang=' + (preferredLang || 'none'));
     for (const script of scripts) {
       const text = script.textContent || '';
       const match = text.match(/ytInitialPlayerResponse\s*=\s*({.*?});\s*\n/);
@@ -153,8 +162,8 @@ function extractFromPlayerResponse() {
           const captions = data?.captions?.playerCaptionsTracklistRenderer;
           debugLog('YT-Subs', 'parsed data: ' + JSON.stringify({ hasCaptions: !!captions, trackCount: captions?.captionTracks?.length }));
           if (captions?.captionTracks?.length > 0) {
-            const track = captions.captionTracks[0];
-            debugLog('YT-Subs', 'found track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
+            var track = selectBestTrack(captions.captionTracks, captions.audioTracks, preferredLang);
+            debugLog('YT-Subs', 'selected track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
             return { baseUrl: track.baseUrl, language: track.languageCode || track.name?.simpleText || 'unknown' };
           }
         } catch (parseErr) {
@@ -170,9 +179,103 @@ function extractFromPlayerResponse() {
 }
 
 /**
+ * 从多个 captionTracks 中选择最佳字幕轨道
+ * @param {Array} tracks - captionTracks 数组
+ * @param {Array} [audioTracks] - audioTracks 数组（用于智能匹配）
+ * @param {string} [preferredLang] - 偏好语言
+ */
+function selectBestTrack(tracks, audioTracks, preferredLang) {
+  if (!tracks || tracks.length === 0) return null;
+
+  // === 诊断日志：输出所有可用字幕轨道 ===
+  var trackSummary = [];
+  for (var ti = 0; ti < tracks.length; ti++) {
+    trackSummary.push({
+      idx: ti,
+      lang: tracks[ti].languageCode || '?',
+      name: (tracks[ti].name && tracks[ti].name.simpleText) || '',
+      kind: tracks[ti].kind || '',
+      isTranslatable: !!tracks[ti].isTranslatable
+    });
+  }
+  debugLog('YT-Subs', 'selectBestTrack: ALL tracks=' + JSON.stringify(trackSummary));
+
+  // === 诊断日志：音频轨道 ===
+  if (audioTracks && audioTracks.length > 0) {
+    var audioSummary = [];
+    for (var ai = 0; ai < audioTracks.length; ai++) {
+      audioSummary.push({
+        idx: ai,
+        lang: audioTracks[ai].audioLanguageCode || audioTracks[ai].languageCode || '?',
+        hasCaptions: audioTracks[ai].hasCaptions,
+        captionTrackIndices: audioTracks[ai].captionTrackIndices
+      });
+    }
+    debugLog('YT-Subs', 'selectBestTrack: audioTracks=' + JSON.stringify(audioSummary));
+  } else {
+    debugLog('YT-Subs', 'selectBestTrack: NO audioTracks found in playerCaptionsTracklistRenderer');
+  }
+
+  debugLog('YT-Subs', 'selectBestTrack: preferredLang=' + (preferredLang || 'none') + ', trackCount=' + tracks.length);
+
+  if (tracks.length === 1) {
+    debugLog('YT-Subs', 'selectBestTrack: only 1 track, using it: ' + (tracks[0].languageCode || '?'));
+    return tracks[0];
+  }
+
+  // 手动模式：按用户选择的语言精确匹配
+  if (preferredLang && preferredLang !== 'auto') {
+    var exactMatch = findTrackByLang(tracks, preferredLang);
+    if (exactMatch) {
+      debugLog('YT-Subs', 'selectBestTrack: MANUAL match "' + preferredLang + '" FOUND at track[' + tracks.indexOf(exactMatch) + ']');
+      return exactMatch;
+    }
+    debugLog('YT-Subs', 'selectBestTrack: MANUAL lang "' + preferredLang + '" NOT FOUND in tracks, fallback to [0]');
+    return tracks[0];
+  }
+
+  // 智能匹配（auto）：优先匹配音频语言
+  var audioLang = null;
+  if (audioTracks && audioTracks.length > 0) {
+    audioLang = audioTracks[0].audioLanguageCode || audioTracks[0].languageCode;
+    debugLog('YT-Subs', 'selectBestTrack: audioTracks[0] lang=' + audioLang);
+  }
+
+  if (audioLang) {
+    var audioMatch = findTrackByLang(tracks, audioLang);
+    if (audioMatch) {
+      debugLog('YT-Subs', 'selectBestTrack: AUTO audio-match "' + audioLang + '" FOUND at track[' + tracks.indexOf(audioMatch) + ']');
+      return audioMatch;
+    }
+    debugLog('YT-Subs', 'selectBestTrack: AUTO audio-lang "' + audioLang + '" has NO matching caption track');
+  } else {
+    debugLog('YT-Subs', 'selectBestTrack: no audioLang available, falling back to tracks[0]');
+  }
+
+  debugLog('YT-Subs', 'selectBestTrack: FALLBACK to tracks[0]: ' + (tracks[0].languageCode || '?'));
+  return tracks[0];
+}
+
+function findTrackByLang(tracks, lang) {
+  var normalizedTarget = normalizeLanguageCode(lang);
+  for (var i = 0; i < tracks.length; i++) {
+    var track = tracks[i];
+    var trackLang = normalizeLanguageCode(track.languageCode || '');
+    if (trackLang === normalizedTarget) return track;
+  }
+  return null;
+}
+
+function normalizeLanguageCode(code) {
+  if (!code) return '';
+  var parts = String(code).toLowerCase().split(/[-_]/);
+  return parts[0];
+}
+
+/**
  * 通过重新请求视频页面获取字幕数据（fallback）
  */
-async function fetchFromPage(videoId) {
+async function fetchFromPage(videoId, preferredLang) {
   try {
     const url = 'https://www.youtube.com/watch?v=' + videoId;
     debugLog('YT-Subs', 'fetchFromPage: fetching ' + url);
@@ -186,8 +289,9 @@ async function fetchFromPage(videoId) {
       const tracks = JSON.parse(match[1]);
       debugLog('YT-Subs', 'fetchFromPage: parsed ' + tracks.length + ' tracks');
       if (tracks.length > 0) {
-        debugLog('YT-Subs', 'fetchFromPage: first track: ' + (tracks[0].languageCode || '?') + ' baseUrl: ' + !!tracks[0].baseUrl);
-        return { baseUrl: tracks[0].baseUrl, language: tracks[0].languageCode || 'unknown' };
+        var track = selectBestTrack(tracks, null, preferredLang);
+        debugLog('YT-Subs', 'fetchFromPage: selected track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
+        return { baseUrl: track.baseUrl, language: track.languageCode || 'unknown' };
       }
     }
   } catch (e) {
@@ -199,8 +303,8 @@ async function fetchFromPage(videoId) {
 /**
  * 获取字幕文件内容（多客户端降级）
  */
-async function fetchSubtitleFile(trackUrl) {
-  debugLog('YT-Subs', 'fetchSubtitleFile for track: ' + trackUrl.slice(0, 80) + '...');
+async function fetchSubtitleFile(trackUrl, preferredLang) {
+  debugLog('YT-Subs', 'fetchSubtitleFile for track: ' + trackUrl.slice(0, 80) + '... preferredLang=' + (preferredLang || 'none'));
 
   const videoId = extractVideoId(trackUrl);
   const clients = ['IOS', 'WEB_EMBEDDED_PLAYER', 'ANDROID', 'WEB'];
@@ -208,11 +312,14 @@ async function fetchSubtitleFile(trackUrl) {
     try {
       const data = await fetchPlayerResponse(videoId, clientName);
       const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      const audioTracks = data?.captions?.playerCaptionsTracklistRenderer?.audioTracks;
       const hasCaptions = !!(tracks && tracks.length > 0);
-      debugLog('YT-Subs', 'InnerTube player response [' + clientName + ']: hasCaptions=' + hasCaptions);
+      debugLog('YT-Subs', 'InnerTube player response [' + clientName + ']: hasCaptions=' + hasCaptions + ' trackCount=' + (tracks ? tracks.length : 0));
       if (hasCaptions) {
-        const bu = tracks[0].baseUrl;
-        debugLog('YT-Subs', 'fetchSubtitleFile: fetching from ' + clientName + ' baseUrl as json3');
+        // 使用 selectBestTrack 保持语言选择一致性
+        var bestTrack = selectBestTrack(tracks, audioTracks, preferredLang);
+        var bu = bestTrack.baseUrl;
+        debugLog('YT-Subs', 'fetchSubtitleFile: [' + clientName + '] selected track lang=' + (bestTrack.languageCode || '?') + ' (was tracks[0]=' + (tracks[0].languageCode || '?') + ')');
         const text = await fetchTimedtextJsonFirst(bu, clientName);
         if (text) return text;
       }
