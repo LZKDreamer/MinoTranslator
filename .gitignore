@@ -29,3 +29,6 @@ website/.qa/
 
 # --- ZIP 安装包 --------------------------------
 /Mino-Translator-*.zip
+
+# --- opencode local config ---
+extension/.opencode/

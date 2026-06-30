@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-06-30
+goal: 修复字幕清洗/断句/合并/渲染对齐的多个bug

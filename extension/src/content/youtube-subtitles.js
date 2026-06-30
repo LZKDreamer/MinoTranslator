@@ -68,9 +68,9 @@ async function fetchSubtitles(videoId, preferredSourceLang) {
   var parsed = parseSubtitleData(rawData);
   parsed.language = language;
 
-  // 清洗每句文本
+  // 清洗每句文本（D6: 显示与翻译统一用 forTranslation:true 深度清洗，cache key 一致）
   for (var i = 0; i < parsed.sentences.length; i++) {
-    parsed.sentences[i].text = cleanCueText(parsed.sentences[i].text, { forTranslation: false });
+    parsed.sentences[i].text = cleanCueText(parsed.sentences[i].text, { forTranslation: true, sourceLanguage: language });
   }
 
   // 过滤空句
@@ -454,8 +454,10 @@ function parseSubtitleData(rawData) {
       var json = JSON.parse(rawData);
       if (json && json.events && Array.isArray(json.events)) {
         var words = parseJson3ToWords(json);
+        var beforeLen = words.length;
+        words = preSegmentPhraseEvents(words);
         var sentences = segmentSentences(words);
-        debugLog('YT-Subs', 'parseJson3ToWords: ' + words.length + ' words → ' + sentences.length + ' sentences');
+        debugLog('YT-Subs', 'parseJson3ToWords: ' + beforeLen + ' words → preSegment ' + words.length + ' → ' + sentences.length + ' sentences');
         return { sentences: sentences, words: words, language: 'unknown' };
       }
     } catch (e) { /* fall through to XML */ }
@@ -530,6 +532,160 @@ function parseJson3ToWords(json) {
   }
 
   return words;
+}
+
+// 说话人标记正则：\n- / \n *- / 2+ 空格 + - （YouTube 短语级 json3 的多说话人编码）
+var SPEAKER_CHANGE_RE = /(?:\n\s*|\s{2,})-\s+/;
+
+/**
+ * 短语级 event 预切分（D1/D2/D4）
+ *
+ * 在 parseJson3ToWords 之后、segmentSentences 之前对 word 数组执行：
+ *  (a) 按 \n- （及 \n *-、2+空格 + -）切分并标记 speakerChange；
+ *  (b) 按内部句末标点（.?!。？！ 不在末尾时）切分。
+ * 子片段时间戳按文本长度比例分配原 word 的 duration。
+ * 同时检测标题卡（titleCard）并从 word 流中剔除。
+ *
+ * 词级 json3（word 已是单词、无内部标点、无 \n- ）经过本函数后数组不变。
+ */
+function preSegmentPhraseEvents(words) {
+  if (!words || words.length === 0) return words;
+  var result = [];
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i];
+    // lineBreak / nonSpeech 直接透传，segmentSentences 自行处理
+    if (w.lineBreak || w.nonSpeech) {
+      result.push(w);
+      continue;
+    }
+    var text = (w.text || '').replace(/^>>\s*/, '').trim();
+    if (!text) {
+      result.push(w);
+      continue;
+    }
+    // 标题卡检测：从 word 流中剔除
+    if (isTitleCardText(text)) {
+      debugLog('YT-Subs', 'preSegment: titleCard detected, dropping: ' + text.slice(0, 60).replace(/\n/g, '\\n'));
+      continue;
+    }
+    var pieces = splitPhraseText(text);
+    if (pieces.length <= 1) {
+      // 无切分：保留原 word（已 trim），时间戳不变
+      result.push({
+        text: text, start: w.start, end: w.end,
+        lineBreak: false, nonSpeech: false, speakerChange: w.speakerChange,
+      });
+      continue;
+    }
+    // 按文本长度比例分配原 word 的 duration
+    var totalLen = 0;
+    for (var pi = 0; pi < pieces.length; pi++) totalLen += pieces[pi].text.length;
+    if (totalLen === 0) totalLen = 1;
+    var durMs = Math.max(0, w.end - w.start);
+    var cursor = w.start;
+    for (var pi2 = 0; pi2 < pieces.length; pi2++) {
+      var piece = pieces[pi2];
+      var pieceDur = Math.round(durMs * piece.text.length / totalLen);
+      var pieceEnd = (pi2 === pieces.length - 1) ? w.end : Math.min(w.end, cursor + pieceDur);
+      result.push({
+        text: piece.text,
+        start: cursor,
+        end: pieceEnd,
+        lineBreak: false,
+        nonSpeech: false,
+        // 第一个子片段继承原 word 的 speakerChange；后续由 \n- 切出的标 speakerChange
+        speakerChange: (pi2 === 0) ? w.speakerChange : (piece.speakerChange || w.speakerChange),
+      });
+      cursor = pieceEnd;
+    }
+  }
+  return result;
+}
+
+/**
+ * 把短语级 event 文本切分成多个片段
+ * @returns {Array<{text:string, speakerChange:boolean}>}
+ */
+function splitPhraseText(text) {
+  // Step 1: 按说话人标记切分
+  var speakerParts = splitSpeakerChange(text);
+  var pieces = [];
+  for (var i = 0; i < speakerParts.length; i++) {
+    // Step 2: 对每段按内部句末标点切分
+    var subPieces = splitInternalPunctuation(speakerParts[i].text);
+    for (var j = 0; j < subPieces.length; j++) {
+      pieces.push({
+        text: subPieces[j],
+        // 说话人切分产生的后续片段标 speakerChange；内部标点切分不改变 speakerChange
+        speakerChange: (j === 0) ? speakerParts[i].speakerChange : false,
+      });
+    }
+  }
+  return pieces;
+}
+
+/**
+ * 按 \n- / \n *- / 2+空格 + - 切分说话人
+ * 第一个片段 speakerChange=false，后续片段 speakerChange=true
+ */
+function splitSpeakerChange(text) {
+  var parts = text.split(SPEAKER_CHANGE_RE);
+  var result = [];
+  for (var i = 0; i < parts.length; i++) {
+    var t = parts[i].replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    result.push({ text: t, speakerChange: i > 0 });
+  }
+  return result;
+}
+
+/**
+ * 按内部句末标点切分（标点不在末尾时）
+ * "It's here. I think" → ["It's here.", "I think"]
+ * "It's here." → ["It's here."]（末尾标点不切）
+ */
+function splitInternalPunctuation(text) {
+  // 先把 \n 等空白归一化为空格（说话人标记已在上一阶段切分消费）
+  text = text.replace(/\s+/g, ' ').trim();
+  var pieces = [];
+  var current = '';
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    current += ch;
+    if (/[.?!。？！]/.test(ch)) {
+      // 检查后面是否还有非空白字符（有则说明标点在内部，需切分）
+      var rest = text.slice(i + 1);
+      if (/\S/.test(rest)) {
+        pieces.push(current.trim());
+        current = '';
+      }
+    }
+  }
+  if (current.trim()) pieces.push(current.trim());
+  return pieces;
+}
+
+/**
+ * 标题卡检测（D4）：满足以下任一条件即为标题卡
+ *  - 匹配剧集标记模式（Season \d+ - Eps.\d+、Episode \d+ 等）
+ *  - 含 \n 且不以句末标点结尾 且 不含说话人标记（避免误杀多说话人 event）
+ *  - 全大写、≤6 词、无小写字母 且 不以句末标点结尾（避免误杀强调对白）
+ */
+function isTitleCardText(text) {
+  var trimmed = text.trim();
+  if (!trimmed) return false;
+  // 条件1: 剧集标记模式
+  if (/Season\s+\d+\s*-\s*Eps\.\d+|Episode\s+\d+/i.test(trimmed)) return true;
+  // 条件2: 含 \n 且不以句末标点结尾 且 不含说话人标记
+  if (trimmed.indexOf('\n') !== -1 && !SENTENCE_END_RE.test(trimmed) && !SPEAKER_CHANGE_RE.test(trimmed)) {
+    return true;
+  }
+  // 条件3: 全大写、≤6 词、无小写字母、不以句末标点结尾
+  if (!SENTENCE_END_RE.test(trimmed) && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && !/[a-z]/.test(trimmed)) {
+    var wordCount = trimmed.split(/\s+/).filter(function (w) { return w.length > 0; }).length;
+    if (wordCount <= 6) return true;
+  }
+  return false;
 }
 
 /**
@@ -621,7 +777,67 @@ function segmentSentences(words) {
     segments.push(current);
   }
 
+  // D4 预合并稀疏垃圾检测：在合并前剔除「孤立」或「夹心」的短非句（无句末标点 ≤3 词）
+  //  - 条件1（孤立）：前后间隔均 >5000ms → ASR 幻觉孤立碎片
+  //  - 条件2（夹心/重叠）：前后间隔均 ≤5000ms（含重叠按 0 处理）→ 被相邻句重叠夹住的幻觉碎片（如 "Jama sh"）
+  // 在合并前检测可避免被 backward merge 吞入有标点的相邻段而逃逸。
+  var SPARSE_GAP_MS = 5000;
+  var MAX_SPARSE_WORDS = 3;
+  for (var sg = 0; sg < segments.length; sg++) {
+    var sgSeg = segments[sg];
+    if (!sgSeg || sgSeg.length === 0 || sgSeg.length > MAX_SPARSE_WORDS) continue;
+    var sgHasEnd = false;
+    for (var sge = 0; sge < sgSeg.length; sge++) {
+      if (SENTENCE_END_RE.test(sgSeg[sge].text)) { sgHasEnd = true; break; }
+    }
+    if (sgHasEnd) continue; // 有标点的完整句保留
+    var sgBefore = Infinity, sgAfter = Infinity;
+    if (sg > 0) {
+      var sgPrev = segments[sg - 1];
+      if (sgPrev && !sgPrev._sparseGarbage) {
+        sgBefore = Math.max(0, sgSeg[0].start - sgPrev[sgPrev.length - 1].end);
+      }
+    }
+    if (sg + 1 < segments.length) {
+      var sgNext = segments[sg + 1];
+      if (sgNext && !sgNext._sparseGarbage) {
+        sgAfter = Math.max(0, sgNext[0].start - sgSeg[sgSeg.length - 1].end);
+      }
+    }
+    // 需两侧均有邻居才能判定孤立/夹心（首尾段一侧 Infinity 时跳过，避免误杀唯一段落）
+    if (sgBefore === Infinity || sgAfter === Infinity) continue;
+    // 孤立（both > SPARSE_GAP_MS）或 夹心/重叠（both ≤ SPARSE_GAP_MS，含 0）
+    if ((sgBefore > SPARSE_GAP_MS && sgAfter > SPARSE_GAP_MS) ||
+        (sgBefore <= SPARSE_GAP_MS && sgAfter <= SPARSE_GAP_MS)) {
+      sgSeg._sparseGarbage = true;
+      debugLog('YT-Subs', 'segmentSentences: sparse garbage dropped: ' + sgSeg.map(function (w) { return w.text; }).join(' ').slice(0, 60));
+    }
+  }
+  if (segments.some(function (s) { return s && s._sparseGarbage; })) {
+    segments = segments.filter(function (s) { return !s._sparseGarbage; });
+  }
+
   var merged = [];
+  // D3 向后合并：当前段是完整句（句末标点结尾）且下一段 ≤3 词且间隔 <1s 且当前段无硬切句 →
+  // 把下一段合并到当前段（backward），消除完整句后短孤儿成为独立闪烁 cue（如 "Oh." / "Oh,"）
+  var BACKWARD_MERGE_MAX_WORDS = 3;
+  var BACKWARD_MERGE_GAP_MS = 1000;
+  for (var bk = 0; bk < segments.length - 1; bk++) {
+    var bseg = segments[bk];
+    if (!bseg || bseg.length === 0) continue;
+    var bEnds = SENTENCE_END_RE.test(bseg[bseg.length - 1].text);
+    if (!bEnds || bseg._hardBreakAfter) continue; // A 必须是完整句且无硬切句（避免跨说话人）
+    var nseg = segments[bk + 1];
+    if (!nseg || nseg.length === 0 || nseg.length > BACKWARD_MERGE_MAX_WORDS) continue;
+    var bGap = nseg[0].start - bseg[bseg.length - 1].end;
+    if (bGap >= BACKWARD_MERGE_GAP_MS) continue; // 间隔 <1s 才合并
+    segments[bk] = bseg.concat(nseg);
+    segments[bk + 1] = null; // 标记已合并，待过滤
+  }
+  if (segments.some(function (s) { return s === null; })) {
+    segments = segments.filter(function (s) { return s !== null; });
+  }
+
   for (var k = 0; k < segments.length; k++) {
     var seg = segments[k];
     var lastText = seg[seg.length - 1].text;
@@ -662,12 +878,15 @@ function segmentSentences(words) {
     var gapBefore = Infinity, gapAfter = Infinity;
     if (n > 0) {
       var prevSent = result[n - 1];
-      gapBefore = sent[0].start - prevSent[prevSent.length - 1].end;
+      // D4: 重叠（负 gap）按 0 处理，避免重叠相邻的孤立短句漏判为稀疏垃圾
+      gapBefore = Math.max(0, sent[0].start - prevSent[prevSent.length - 1].end);
     }
     if (n + 1 < result.length) {
       var nextSent = result[n + 1];
-      gapAfter = nextSent[0].start - sent[sent.length - 1].end;
+      gapAfter = Math.max(0, nextSent[0].start - sent[sent.length - 1].end);
     }
+    // 需两侧均有邻居才能判定孤立（首尾段一侧 Infinity 时跳过）
+    if (gapBefore === Infinity || gapAfter === Infinity) continue;
     if (gapBefore > SPARSE_GAP_MS && gapAfter > SPARSE_GAP_MS) {
       sent._sparseGarbage = true;
     }
@@ -687,16 +906,27 @@ function segmentSentences(words) {
     var duration = endSec - startSec;
 
     if (duration > MAX_SENTENCE_DURATION_SEC && sent.length >= MIN_WORDS_TO_SPLIT) {
-      // 找句子内最大的词间间隔，在该处切分
+      // D3: 标点优先 — 优先在以句末标点结尾的词之后切分，选最接近中点者
       var bestSplit = -1;
-      var bestGap = 0;
+      var bestDist = Infinity;
+      var midPoint = sent.length / 2;
       for (var q = 0; q < sent.length - 1; q++) {
-        var gapMs = sent[q + 1].start - sent[q].end;
-        if (gapMs > bestGap) { bestGap = gapMs; bestSplit = q; }
+        if (SENTENCE_END_RE.test(sent[q].text)) {
+          var dist = Math.abs(q + 1 - midPoint);
+          if (dist < bestDist) { bestDist = dist; bestSplit = q; }
+        }
       }
-      // 如果没有显著间隔（连续说话），按词数对半切分
-      if (bestGap < 80) {
-        bestSplit = Math.floor(sent.length / 2) - 1;
+      // 退化：整段无句末标点切分点 → 用现有"最大词间间隔"切分
+      if (bestSplit < 0) {
+        var bestGap = 0;
+        for (var qg = 0; qg < sent.length - 1; qg++) {
+          var gapMs = sent[qg + 1].start - sent[qg].end;
+          if (gapMs > bestGap) { bestGap = gapMs; bestSplit = qg; }
+        }
+        // 如果没有显著间隔（连续说话），按词数对半切分
+        if (bestGap < 80) {
+          bestSplit = Math.floor(sent.length / 2) - 1;
+        }
       }
       if (bestSplit > 0 && bestSplit < sent.length - 1) {
         var leftSent = sent.slice(0, bestSplit + 1);
@@ -786,6 +1016,42 @@ function segmentSentences(words) {
   }
   sentences = sentences.filter(function (s) { return !s._repetitionGarbage; });
 
+  // 翻译单元完整性安全网：无标点前向合并
+  // 所有断句/合并/切分/截断/丢弃后处理完成后，兜底把"无句末标点结尾的半句话"前向合并到下一句，
+  // 保证送 AI 的每条句子以句末标点结尾（极端连续无标点 case 除外），防止 AI 合并半句导致翻译错位。
+  var SAFETYNET_GAP_SEC = 1.0;
+  var SAFETYNET_MERGEDUR_SEC = 15.0;
+  var SAFETYNET_HARDBREAK_GAP_SEC = 2.0;
+  var si = 0;
+  while (si < sentences.length - 1) {
+    var curS = sentences[si];
+    if (SENTENCE_END_RE.test(curS.text)) { si++; continue; } // 完整句不触碰
+    var nextS = sentences[si + 1];
+    var sGap = nextS.start - curS.end;
+    var mergedDur = nextS.end - curS.start;
+    if (sGap >= 0 && sGap < SAFETYNET_GAP_SEC &&
+        mergedDur < SAFETYNET_MERGEDUR_SEC &&
+        sGap <= SAFETYNET_HARDBREAK_GAP_SEC) {
+      // 前向合并：当前句并入下一句
+      sentences[si + 1] = {
+        start: curS.start,
+        end: nextS.end,
+        text: curS.text + ' ' + nextS.text,
+      };
+      sentences.splice(si, 1);
+      // 链式合并：合并后新句（原 si 位置）可能仍无标点，保留 si 重新检查其与新的下一句
+    } else {
+      si++;
+    }
+  }
+
+  // D4: 极端 case WARN 日志 — 安全网后仍不以句末标点结尾的句子
+  for (var wi = 0; wi < sentences.length; wi++) {
+    if (!SENTENCE_END_RE.test(sentences[wi].text)) {
+      debugLog('YT-Subs', 'segmentSentences: incomplete sentence remains at #' + wi + ': ' + sentences[wi].text.slice(0, 60));
+    }
+  }
+
   return sentences;
 }
 
@@ -842,9 +1108,9 @@ function cleanCueText(text, options) {
 // 优先级并发翻译（播放位优先 + 2路并发 + 拖动重排）
 // ═══════════════════════════════════════════════
 
-// 断句合并阈值
-const FRAGMENT_MERGE_MAX_WORDS = 3;
-const TINY_SENTENCE_MAX_WORDS = 2;
+// 断句合并阈值（D3: 3→4 / 2→3，减少 4 词引导句的 0.8s 孤儿闪烁）
+const FRAGMENT_MERGE_MAX_WORDS = 4;
+const TINY_SENTENCE_MAX_WORDS = 3;
 const MAX_TRANSLATION_TOKENS = 65536;
 const TRANSLATION_TEMPERATURE = 0.3;
 
@@ -1265,6 +1531,22 @@ function parseTranslationArray(text, expectedLength) {
 
   // 新格式：{"0":"T1","1":"T2"} — 按索引对齐，即使缺条也不会错位
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    // D7: wrapper 解包 — {"translations":[...]} / {"data":[...]} / {"result":[...]}
+    var wrapperKeys = ['translations', 'data', 'result'];
+    for (var wi = 0; wi < wrapperKeys.length; wi++) {
+      if (Object.prototype.hasOwnProperty.call(parsed, wrapperKeys[wi])) {
+        var wval = parsed[wrapperKeys[wi]];
+        if (Array.isArray(wval) || (wval && typeof wval === 'object')) {
+          debugLog('YT-Subs', 'parseTranslationArray: unwrapping wrapper field "' + wrapperKeys[wi] + '"');
+          parsed = wval;
+          break;
+        }
+      }
+    }
+  }
+
+  // 解包后再次判断：新格式 {"0":"T1","1":"T2"} — 按索引对齐
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     var indexed = new Array(expectedLength);
     for (var ki = 0; ki < expectedLength; ki++) indexed[ki] = '';
     for (var key in parsed) {
@@ -1298,9 +1580,14 @@ function parseTranslationArray(text, expectedLength) {
  * 尝试修复被截断的 JSON 数组（AI 输出超出 max_tokens 时常见）
  * 模式1: ["a","b","c  → 补全后重解析
  * 模式2: ["a","b","c"]  额外文本  → 提取完整数组
+ * D7 模式3: {"0":"a","1":"b","2":"c  → 对象格式截断修复，校验 keys 连续后转为数组
  */
 function tryRepairTruncatedJson(rawText) {
   if (!rawText || rawText.length < 3) return null;
+  // D7: 对象格式 { 开头的截断修复
+  if (rawText[0] === '{') {
+    return tryRepairTruncatedJsonObject(rawText);
+  }
   // 确保以 [ 开头
   if (rawText[0] !== '[') return null;
   // 找最后一个完整的字符串元素（以 ", 或 "] 结尾）
@@ -1329,6 +1616,45 @@ function tryRepairTruncatedJson(rawText) {
     try { var arr2 = JSON.parse(repaired); if (Array.isArray(arr2)) return arr2; } catch (_e) {}
   }
   return null;
+}
+
+/**
+ * D7: 修复被截断的 JSON 对象 {"0":"a","1":"b","2":"c
+ * 从末尾向前找最后一个完整的 "key":"value" 对（value 以闭合 " 结尾，后跟 , 或结尾），
+ * 在该处补 } 重新解析。校验 keys 是连续整数 0..N-1，否则返回 null。
+ * 返回数组（按 key 顺序取值），供 normalizeTranslationArray 对齐。
+ */
+function tryRepairTruncatedJsonObject(rawText) {
+  // 找最后一个完整的 "value" 闭合引号（后跟 , 或字符串结尾）
+  var lastComplete = -1;
+  for (var i = rawText.length - 1; i >= 1; i--) {
+    if (rawText[i] === '"') {
+      var after = rawText.slice(i + 1).trim();
+      if (after === '' || after[0] === ',' || after[0] === '}') {
+        lastComplete = i;
+        break;
+      }
+    }
+  }
+  if (lastComplete === -1) return null;
+  var repaired = rawText.slice(0, lastComplete + 1) + '}';
+  var obj;
+  try { obj = JSON.parse(repaired); } catch (_e) { return null; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  // D7: 校验 keys 是连续整数 0..N-1
+  var keys = Object.keys(obj).map(function (k) { return parseInt(k, 10); })
+    .filter(function (k) { return !isNaN(k); })
+    .sort(function (a, b) { return a - b; });
+  if (keys.length === 0) return null;
+  for (var ki = 0; ki < keys.length; ki++) {
+    if (keys[ki] !== ki) return null; // 不连续 → 丢弃
+  }
+  // 转为数组（按 key 顺序）
+  var arr = new Array(keys.length);
+  for (var vi = 0; vi < keys.length; vi++) {
+    arr[vi] = String(obj[vi] || '');
+  }
+  return arr;
 }
 
 function storageLocalSet(key, value) {

@@ -241,8 +241,8 @@ var TranslatePrompt = (function () {
     }
 
     if (o.forTranslation) {
-      // 英文填充词
-      cleaned = cleaned.replace(/\b(um|uh|er|ah|hmm|mm-hmm|uh-huh)\b/gi, '');
+      // 英文填充词（含扩展元音填充 eeee/aaaa/oooo 等）
+      cleaned = cleaned.replace(/\b(um|uh|er|ah|hmm|mm-hmm|uh-huh|e{2,}|a{2,}|o{2,}|m{2,})\b/gi, '');
 
       // 韩语填充词
       if (code === 'ko') {
@@ -260,6 +260,12 @@ var TranslatePrompt = (function () {
 
       // 时间标记 (00:15)
       cleaned = cleaned.replace(/\(\d{1,2}:\d{2}(:\d{2})?\)/g, '');
+
+      // 填充词移除后留下的孤立标点清理（如 "Oh, ." → "Oh."，"Hello ," → "Hello"）
+      cleaned = cleaned.replace(/,\s*\./g, '.');
+      cleaned = cleaned.replace(/\s+,/g, ',');
+      cleaned = cleaned.replace(/(\s+\.){2,}/g, '.');
+      cleaned = cleaned.replace(/^\s*[,.;:]+/, '');
     }
 
     return cleaned.replace(/\s+/g, ' ').trim();

@@ -94,6 +94,7 @@ class SubtitleRenderer {
     this.config = { ...this.config, ...options };
     this.currentCueIndex = -1;
     this._lastRenderedIndex = -1;
+    this._lastValidIndex = -1;  // D5: 重置，避免旧 hold 残留
 
     console.log('[SubtitleRenderer] start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
     debugLog('SubRenderer', 'start: cues=' + this.cues.length + ' mode=' + this.config.mode + ' hostInDOM=' + !!(this.host && this.host.parentNode) + ' videoReadyState=' + (video ? video.readyState : 'null'));
@@ -106,7 +107,27 @@ class SubtitleRenderer {
       cancelAnimationFrame(this.rafId);
     }
 
+    // D5: 监听 seeking/seeked — seek 时清空 _lastValidIndex 让 gap-hold 失效，字幕立即隐藏
+    this._removeSeekListeners();
+    if (video) {
+      this._onSeeking = () => { this._lastValidIndex = -1; };
+      this._onSeeked = () => { this._lastValidIndex = -1; };
+      video.addEventListener('seeking', this._onSeeking);
+      video.addEventListener('seeked', this._onSeeked);
+    }
+
     this.renderLoop();
+  }
+
+  _removeSeekListeners() {
+    if (this.video && this._onSeeking) {
+      this.video.removeEventListener('seeking', this._onSeeking);
+      this._onSeeking = null;
+    }
+    if (this.video && this._onSeeked) {
+      this.video.removeEventListener('seeked', this._onSeeked);
+      this._onSeeked = null;
+    }
   }
 
   renderLoop() {
@@ -126,9 +147,14 @@ class SubtitleRenderer {
     }
 
     if (this.isAdShowing()) {
+      // D5: 广告期间强制隐藏字幕，不走 gap-hold、不依赖 renderCue(-1) 一次性触发
       if (this.currentCueIndex !== -1) {
         this.currentCueIndex = -1;
-        this.renderCue(-1);
+      }
+      const container = this.shadow && this.shadow.getElementById('cueContainer');
+      if (container) {
+        container.classList.remove('visible');
+        container.innerHTML = '';
       }
       this.rafId = requestAnimationFrame(() => this.renderLoop());
       return;
@@ -182,8 +208,8 @@ class SubtitleRenderer {
 
     if (index < 0 || index >= this.cues.length) {
       // 间隙 hold 策略：如果间隙很短，保持显示上一句避免字幕闪烁
-      // 找到下一个即将开始的 cue，计算离它还有多久
-      if (this._lastValidIndex >= 0 && this._lastValidIndex < this.cues.length && this.video) {
+      // D5: 广告期间或 seek 后（_lastValidIndex<0）跳过 hold，立即隐藏
+      if (this._lastValidIndex >= 0 && !this.isAdShowing() && this._lastValidIndex < this.cues.length && this.video) {
         var currentTime = this.video.currentTime;
         // 二分查找第一个 start > currentTime 的 cue
         var nextCueIdx = -1;
@@ -369,8 +395,10 @@ class SubtitleRenderer {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this._removeSeekListeners();  // D5: 移除 seek 监听
     this.cues = [];
     this.currentCueIndex = -1;
+    this._lastValidIndex = -1;
     this.renderCue(-1);
   }
 
@@ -381,6 +409,7 @@ class SubtitleRenderer {
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
     }
+    this._removeSeekListeners();  // D5: 移除 seek 监听
     if (this.host && this.host.parentNode) {
       this.host.parentNode.removeChild(this.host);
     }
