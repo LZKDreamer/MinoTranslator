@@ -237,6 +237,15 @@ class SubtitleRenderer {
     this._lastValidIndex = index;
 
     const cue = this.cues[index];
+
+    // 跳过目标语言匹配段：译文与原文相同时（即已在目标语言），不渲染字幕
+    if (cue.translated && cue.translated === cue.text) {
+      this._lastRenderedIndex = index;
+      container.classList.remove('visible');
+      container.innerHTML = '';
+      return;
+    }
+
     const mode = this.config.mode;
     const position = this.config.position;
     const wasHidden = !container.classList.contains('visible');
@@ -265,15 +274,15 @@ class SubtitleRenderer {
         // 仅显示译文
         html += `<div class="cue-translated" style="color:${transColor}">${this.escapeHtml(cue.translated || cue.text)}</div>`;
       } else if (position === 'above') {
-        // 译文在上，原文在下
-        if (cue.translated) {
+        // 译文在上，原文在下；译文与原文相同时跳过（目标语言匹配，无需重复显示）
+        if (cue.translated && cue.translated !== cue.text) {
           html += `<div class="cue-translated" style="color:${transColor}">${this.escapeHtml(cue.translated)}</div>`;
         }
         html += `<div class="cue-original" style="color:${origColor}">${this.escapeHtml(cue.text)}</div>`;
       } else {
-        // below: 原文在上，译文在下
+        // below: 原文在上，译文在下；译文与原文相同时跳过
         html += `<div class="cue-original" style="color:${origColor}">${this.escapeHtml(cue.text)}</div>`;
-        if (cue.translated) {
+        if (cue.translated && cue.translated !== cue.text) {
           html += `<div class="cue-translated" style="color:${transColor}">${this.escapeHtml(cue.translated)}</div>`;
         }
       }

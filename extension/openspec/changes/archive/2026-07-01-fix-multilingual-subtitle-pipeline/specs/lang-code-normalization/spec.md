@@ -1,60 +1,6 @@
-# lang-code-normalization
+# lang-code-normalization (Delta)
 
-Unified language code normalization function replacing ad-hoc normalization across the codebase.
-
-## Requirements
-
-### Requirement: resolveToLangCode returns canonical key and entry
-
-The system SHALL provide `resolveToLangCode(code)` as the single entry point for normalizing any language code to its canonical form. It MUST return an object `{ key, entry }` when a match is found, or `null` when no match exists. This function SHALL replace all ad-hoc normalization scattered across the codebase.
-
-#### Scenario: Direct registry key match
-
-- **WHEN** `resolveToLangCode("id")` is called
-- **THEN** it returns `{ key: "id", entry: LANGUAGE_REGISTRY["id"] }`
-
-#### Scenario: Alias match
-
-- **WHEN** `resolveToLangCode("id-ID")` is called
-- **THEN** it matches via `LANGUAGE_REGISTRY["id"].aliases`
-- **AND** returns `{ key: "id", entry: LANGUAGE_REGISTRY["id"] }`
-
-#### Scenario: Case-insensitive match
-
-- **WHEN** `resolveToLangCode("ZH-CN")` is called
-- **THEN** it matches via alias `"zh-CN"` (lowercased)
-- **AND** returns `{ key: "zh-CN", entry: LANGUAGE_REGISTRY["zh-CN"] }`
-
-#### Scenario: French alias match
-
-- **WHEN** `resolveToLangCode("fr-FR")` is called
-- **THEN** it matches via `LANGUAGE_REGISTRY["fr"].aliases`
-- **AND** returns `{ key: "fr", entry: LANGUAGE_REGISTRY["fr"] }`
-- **AND** the key is NOT `"en"`
-
-#### Scenario: German alias match
-
-- **WHEN** `resolveToLangCode("de-DE")` is called
-- **THEN** it returns `{ key: "de", entry: LANGUAGE_REGISTRY["de"] }`
-
-#### Scenario: No match
-
-- **WHEN** `resolveToLangCode("xx")` is called and no registry entry or alias matches
-- **THEN** it returns `null`
-
-#### Scenario: Null input
-
-- **WHEN** `resolveToLangCode(null)` or `resolveToLangCode("")` is called
-- **THEN** it returns `null`
-
-### Requirement: Registry entries have a key field
-
-Every entry in `LANGUAGE_REGISTRY` SHALL include a `key` property whose value equals the object's own key in the registry. This eliminates the need for `findRegistryKeyByEntry()`.
-
-#### Scenario: Access canonical key from entry
-
-- **WHEN** `LANGUAGE_REGISTRY["id"]` is accessed
-- **THEN** `entry.key` equals `"id"`
+## ADDED Requirements
 
 ### Requirement: detectSourceLanguage returns canonical registry keys for Latin languages
 
@@ -113,3 +59,50 @@ The system SHALL ensure `detectSourceLanguage()` returns correct results for sho
 
 - **WHEN** `detectSourceLanguage("A")` is called (1 character, 100% alpha)
 - **THEN** it returns `null` (too short to classify)
+
+## MODIFIED Requirements
+
+### Requirement: resolveToLangCode returns canonical key and entry
+
+The system SHALL provide `resolveToLangCode(code)` as the single entry point for normalizing any language code to its canonical form. It MUST return an object `{ key, entry }` when a match is found, or `null` when no match exists. This function SHALL replace all ad-hoc normalization scattered across the codebase.
+
+The function SHALL correctly resolve French, Spanish, Italian, German, and Portuguese codes and their aliases (e.g. `"fr-FR"`, `"es-419"`, `"it-IT"`, `"de-DE"`, `"pt-BR"`) to their canonical keys. These SHALL NOT resolve to `"en"` — the registry entries for these languages already exist with correct alias arrays.
+
+#### Scenario: Direct registry key match
+
+- **WHEN** `resolveToLangCode("id")` is called
+- **THEN** it returns `{ key: "id", entry: LANGUAGE_REGISTRY["id"] }`
+
+#### Scenario: Alias match
+
+- **WHEN** `resolveToLangCode("id-ID")` is called
+- **THEN** it matches via `LANGUAGE_REGISTRY["id"].aliases`
+- **AND** returns `{ key: "id", entry: LANGUAGE_REGISTRY["id"] }`
+
+#### Scenario: French alias match
+
+- **WHEN** `resolveToLangCode("fr-FR")` is called
+- **THEN** it matches via `LANGUAGE_REGISTRY["fr"].aliases`
+- **AND** returns `{ key: "fr", entry: LANGUAGE_REGISTRY["fr"] }`
+- **AND** the key is NOT `"en"`
+
+#### Scenario: German alias match
+
+- **WHEN** `resolveToLangCode("de-DE")` is called
+- **THEN** it returns `{ key: "de", entry: LANGUAGE_REGISTRY["de"] }`
+
+#### Scenario: Case-insensitive match
+
+- **WHEN** `resolveToLangCode("ZH-CN")` is called
+- **THEN** it matches via alias `"zh-CN"` (lowercased)
+- **AND** returns `{ key: "zh-CN", entry: LANGUAGE_REGISTRY["zh-CN"] }`
+
+#### Scenario: No match
+
+- **WHEN** `resolveToLangCode("xx")` is called and no registry entry or alias matches
+- **THEN** it returns `null`
+
+#### Scenario: Null input
+
+- **WHEN** `resolveToLangCode(null)` or `resolveToLangCode("")` is called
+- **THEN** it returns `null`

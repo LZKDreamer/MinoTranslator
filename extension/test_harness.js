@@ -7,7 +7,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const SENTENCE_END_RE = /[.?!。？！]$/;
+const SENTENCE_END_CHARS = '.?!\u3002\uff1f\uff01\u06d4\u061f\u0964\u0965\u1362\u1367';
+const SENTENCE_END_RE = new RegExp('[' + SENTENCE_END_CHARS + ']$');
+const SENTENCE_END_INTERNAL_RE = new RegExp('[' + SENTENCE_END_CHARS + ']');
 const FRAGMENT_MERGE_MAX_WORDS = 3;
 const TINY_SENTENCE_MAX_WORDS = 2;
 
@@ -136,16 +138,28 @@ function segmentSentences(words) {
   var SPARSE_GAP_MS = 5000;
   var MAX_SPARSE_WORDS = 3;
 
+  function getSparseWordMultiplier(text) {
+    if (/[\u0E00-\u0E7F]/.test(text)) return 2.0;
+    if (/[\u0900-\u0FFF\u1000-\u17FF]/.test(text)) return 1.5;
+    return 1.0;
+  }
+
   for (var n = 0; n < result.length; n++) {
     var sent = result[n];
-    if (sent.length === 0 || sent.length > MAX_SPARSE_WORDS) continue;
+    if (sent.length === 0) continue;
+    if (sent.length < 2) continue;
+    var stext = sent.map(function(w){return w.text;}).join(' ');
+    var effectiveMax = MAX_SPARSE_WORDS * getSparseWordMultiplier(stext);
+    if (sent.length > effectiveMax) continue;
     var hasSentenceEnd = false;
     for (var pe = 0; pe < sent.length; pe++) { if (SENTENCE_END_RE.test(sent[pe].text)) { hasSentenceEnd = true; break; } }
     if (hasSentenceEnd) continue;
     var gapBefore = Infinity, gapAfter = Infinity;
-    if (n > 0) { var ps = result[n - 1]; gapBefore = sent[0].start - ps[ps.length - 1].end; }
-    if (n + 1 < result.length) { var ns = result[n + 1]; gapAfter = ns[0].start - sent[sent.length - 1].end; }
-    if (gapBefore > SPARSE_GAP_MS && gapAfter > SPARSE_GAP_MS) { sent._sparseGarbage = true; }
+    if (n > 0) { var ps = result[n - 1]; gapBefore = Math.max(0, sent[0].start - ps[ps.length - 1].end); }
+    if (n + 1 < result.length) { var ns2 = result[n + 1]; gapAfter = Math.max(0, ns2[0].start - sent[sent.length - 1].end); }
+    if (gapBefore === Infinity || gapAfter === Infinity) continue;
+    if ((gapBefore > SPARSE_GAP_MS && gapAfter > SPARSE_GAP_MS) ||
+        (gapBefore <= SPARSE_GAP_MS && gapAfter <= SPARSE_GAP_MS)) { sent._sparseGarbage = true; }
   }
 
   for (var n = 0; n < result.length; n++) {

@@ -459,7 +459,9 @@ function extractVideoId(url) {
 // 解析 & 本地断句
 // ═══════════════════════════════════════════════
 
-const SENTENCE_END_RE = /[.?!。？！]$/;
+const SENTENCE_END_CHARS = '.?!\u3002\uff1f\uff01\u06d4\u061f\u0964\u0965\u1362\u1367';
+const SENTENCE_END_RE = new RegExp('[' + SENTENCE_END_CHARS + ']$');
+const SENTENCE_END_INTERNAL_RE = new RegExp('[' + SENTENCE_END_CHARS + ']');
 
 /**
  * 解析字幕数据：JSON3 → 词级解析 → 本地断句；XML → 短语级解析
@@ -671,7 +673,7 @@ function splitInternalPunctuation(text) {
   for (var i = 0; i < text.length; i++) {
     var ch = text[i];
     current += ch;
-    if (/[.?!。？！]/.test(ch)) {
+    if (SENTENCE_END_INTERNAL_RE.test(ch)) {
       // 检查后面是否还有非空白字符（有则说明标点在内部，需切分）
       var rest = text.slice(i + 1);
       if (/\S/.test(rest)) {
@@ -699,10 +701,12 @@ function isTitleCardText(text) {
   if (trimmed.indexOf('\n') !== -1 && !SENTENCE_END_RE.test(trimmed) && !SPEAKER_CHANGE_RE.test(trimmed)) {
     return true;
   }
-  // 条件3: 全大写、≤6 词、无小写字母、不以句末标点结尾
-  if (!SENTENCE_END_RE.test(trimmed) && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && !/[a-z]/.test(trimmed)) {
-    var wordCount = trimmed.split(/\s+/).filter(function (w) { return w.length > 0; }).length;
-    if (wordCount <= 6) return true;
+  // 条件3: 全大写、≤6 词、无小写字母、不以句末标点结尾（仅适用于拉丁文字；非拉丁文字无大小写，跳过此条件）
+  if (!/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u0600-\u06FF\u0E00-\u0E7F\u0900-\u0FFF]/.test(trimmed)) {
+    if (!SENTENCE_END_RE.test(trimmed) && trimmed === trimmed.toUpperCase() && /[A-Z]/.test(trimmed) && !/[a-z]/.test(trimmed)) {
+      var wordCount = trimmed.split(/\s+/).filter(function (w) { return w.length > 0; }).length;
+      if (wordCount <= 6) return true;
+    }
   }
   return false;
 }
@@ -800,11 +804,22 @@ function segmentSentences(words) {
   //  - 条件1（孤立）：前后间隔均 >5000ms → ASR 幻觉孤立碎片
   //  - 条件2（夹心/重叠）：前后间隔均 ≤5000ms（含重叠按 0 处理）→ 被相邻句重叠夹住的幻觉碎片（如 "Jama sh"）
   // 在合并前检测可避免被 backward merge 吞入有标点的相邻段而逃逸。
+  // 非拉丁文字系统（泰文/天城文/缅甸文等）使用脚本乘数来提升阈值，因这些语言的 ASR 常缺少句末标点
+  function getSparseWordMultiplier(text) {
+    if (/[\u0E00-\u0E7F]/.test(text)) return 2.0;                                    // Thai/Lao
+    if (/[\u0900-\u0FFF\u1000-\u17FF]/.test(text)) return 1.5;                       // Devanagari/Bengali/Burmese/Khmer
+    return 1.0;  // Latin/CJK/Arabic/Cyrillic/Ethiopic
+  }
   var SPARSE_GAP_MS = 5000;
   var MAX_SPARSE_WORDS = 3;
   for (var sg = 0; sg < segments.length; sg++) {
     var sgSeg = segments[sg];
-    if (!sgSeg || sgSeg.length === 0 || sgSeg.length > MAX_SPARSE_WORDS) continue;
+    if (!sgSeg || sgSeg.length === 0) continue;
+    // 最小2词守卫：单一"词"段永不作为稀疏垃圾丢弃（可能是数字、名字、"100"等）
+    if (sgSeg.length < 2) continue;
+    var sgText = sgSeg.map(function (w) { return w.text; }).join(' ');
+    var effectiveMax = MAX_SPARSE_WORDS * getSparseWordMultiplier(sgText);
+    if (sgSeg.length > effectiveMax) continue;
     var sgHasEnd = false;
     for (var sge = 0; sge < sgSeg.length; sge++) {
       if (SENTENCE_END_RE.test(sgSeg[sge].text)) { sgHasEnd = true; break; }
@@ -888,7 +903,11 @@ function segmentSentences(words) {
   var MAX_SPARSE_WORDS = 3;
   for (var n = 0; n < result.length; n++) {
     var sent = result[n];
-    if (sent.length === 0 || sent.length > MAX_SPARSE_WORDS) continue;
+    if (sent.length === 0) continue;
+    if (sent.length < 2) continue;
+    var stext2 = sent.map(function(w){return w.text;}).join(' ');
+    var effectiveMax2 = MAX_SPARSE_WORDS * getSparseWordMultiplier(stext2);
+    if (sent.length > effectiveMax2) continue;
     var hasSentenceEnd = false;
     for (var pe = 0; pe < sent.length; pe++) {
       if (SENTENCE_END_RE.test(sent[pe].text)) { hasSentenceEnd = true; break; }
@@ -1048,7 +1067,7 @@ function segmentSentences(words) {
     var nextS = sentences[si + 1];
     var sGap = nextS.start - curS.end;
     var mergedDur = nextS.end - curS.start;
-    if (sGap >= 0 && sGap < SAFETYNET_GAP_SEC &&
+    if (sGap < SAFETYNET_GAP_SEC &&
         mergedDur < SAFETYNET_MERGEDUR_SEC &&
         sGap <= SAFETYNET_HARDBREAK_GAP_SEC) {
       // 前向合并：当前句并入下一句
@@ -1138,6 +1157,23 @@ const BATCH_CONTEXT_SIZE = 5;
 const MAX_CONCURRENT = 2;
 
 /**
+ * 检测文本段是否与目标语言相同（用于跳过翻译）
+ * @param {string} text - 待检测文本
+ * @param {string} targetLang - 目标语言代码
+ * @returns {boolean}
+ */
+function isSegmentSameLanguage(text, targetLang) {
+  if (!text || !targetLang) return false;
+  var detected = detectSourceLanguage(text);
+  if (!detected) return false;
+  var detectedResolved = resolveToLangCode(detected);
+  var tgtResolved = resolveToLangCode(targetLang);
+  var detectedKey = detectedResolved ? detectedResolved.key : detected;
+  var tgtKey = tgtResolved ? tgtResolved.key : String(targetLang).split('-')[0];
+  return detectedKey === tgtKey;
+}
+
+/**
  * 批量翻译：播放位优先、2路并发、批次独立失败
  * @param {Array} sentences - 已断句数组 [{start, end, text}]
  * @param {Object} settings - 翻译配置
@@ -1145,8 +1181,7 @@ const MAX_CONCURRENT = 2;
  * @param {Function} onProgress - 每批完成回调 (resultsByIndex, batchMeta)
  * @param {AbortSignal} signal
  * @returns {Promise<string[]>} 译文数组
- */
-async function batchTranslateSentences(sentences, settings, getCurrentTime, onProgress, signal) {
+ */async function batchTranslateSentences(sentences, settings, getCurrentTime, onProgress, signal) {
   var modelKey = settings.defaultModel || 'agnes-ai';
   var models = settings.models || {};
   var model = models[modelKey];
@@ -1155,40 +1190,79 @@ async function batchTranslateSentences(sentences, settings, getCurrentTime, onPr
     throw new Error(getSubtitleMessage('noApiKey', '请先在设置中配置 API Key'));
   }
 
-  // 短视频：单批直接翻
-  if (sentences.length <= BATCH_SIZE) {
-    var results = await translateOneBatch(sentences, settings, model, null, signal);
-    if (onProgress) onProgress(results, { batchIndex: 0, totalBatches: 1 });
-    return results;
+  var targetLang = settings.targetLanguage || 'zh-CN';
+
+  // 预扫描：标记目标语言匹配的句子，直接透传原文（不送AI翻译）
+  var allResults = new Array(sentences.length);
+  var skippedIndices = [];
+  for (var psi = 0; psi < sentences.length; psi++) {
+    if (isSegmentSameLanguage(sentences[psi].text, targetLang)) {
+      allResults[psi] = sentences[psi].text;
+      skippedIndices.push(psi);
+    }
+  }
+  if (skippedIndices.length > 0) {
+    debugLog('YT-Subs', 'batchTranslateSentences: skipped ' + skippedIndices.length + ' target-language segments');
+    // 缓存跳过的句子
+    for (var ski = 0; ski < skippedIndices.length; ski++) {
+      var skIdx = skippedIndices[ski];
+      var skCacheKey = getSubtitleTranslationCacheKey(sentences[skIdx].text, {
+        videoId: settings.videoId, sourceLanguage: settings.sourceLanguage,
+        targetLanguage: targetLang, modelKey: modelKey, modelId: model.modelId,
+      });
+      try { await setCachedSubtitleTranslation(skCacheKey, sentences[skIdx].text); } catch (cc) {}
+    }
+    // 全部跳过：不发 API，直接返回
+    if (skippedIndices.length === sentences.length) {
+      debugLog('YT-Subs', 'batchTranslateSentences: ALL sentences match target language — no API call needed');
+      return allResults;
+    }
   }
 
-  // 构建批次 — 自适应尺寸：长句子用更小批次避免 AI 输出超 max_tokens
+  // 构建需翻译的句子列表（排除已跳过的）
+  var translateSentences = [];
+  var translateIndexMap = [];  // translateIdx → originalIdx
+  for (var psi2 = 0; psi2 < sentences.length; psi2++) {
+    if (allResults[psi2] === undefined) {
+      translateIndexMap.push(psi2);
+      translateSentences.push(sentences[psi2]);
+    }
+  }
+
+  // 短视频：单批直接翻
+  if (translateSentences.length <= BATCH_SIZE) {
+    var results = await translateOneBatch(translateSentences, settings, model, null, signal);
+    for (var ri0 = 0; ri0 < results.length; ri0++) {
+      allResults[translateIndexMap[ri0]] = results[ri0];
+    }
+    if (onProgress) onProgress(allResults.slice(), { batchIndex: 0, totalBatches: 1 });
+    return allResults;
+  }
+
+  // 构建批次 — 自适应尺寸
   var allBatches = [];
   var batchSize = BATCH_SIZE;
-  // 计算平均句长，如果 >120 字符/句，按比例缩小批次
   var totalChars = 0;
-  for (var ci2 = 0; ci2 < sentences.length; ci2++) totalChars += sentences[ci2].text.length;
-  var avgChars = sentences.length > 0 ? totalChars / sentences.length : 0;
+  for (var ci2 = 0; ci2 < translateSentences.length; ci2++) totalChars += translateSentences[ci2].text.length;
+  var avgChars = translateSentences.length > 0 ? totalChars / translateSentences.length : 0;
   if (avgChars > 150) batchSize = 15;
   else if (avgChars > 120) batchSize = 25;
   else if (avgChars > 90) batchSize = 30;
   debugLog('YT-Subs', 'batchTranslateSentences: avgChars=' + avgChars.toFixed(0) + ' → batchSize=' + batchSize);
 
-  for (var bi = 0; bi < sentences.length; bi += batchSize) {
+  for (var bi = 0; bi < translateSentences.length; bi += batchSize) {
     allBatches.push({
       id: allBatches.length,
       startIndex: bi,
-      sentences: sentences.slice(bi, bi + batchSize),
-      status: 'pending',       // pending | inFlight | completed | failed | split
+      sentences: translateSentences.slice(bi, bi + batchSize),
+      status: 'pending',
       translations: null,
       retries: 0,
     });
   }
 
   var apiUrl = model.apiUrl.replace(/\/+$/, '') + '/chat/completions';
-  var targetLang = settings.targetLanguage || 'zh-CN';
-  var allResults = new Array(sentences.length);
-  var completedBatches = new Map();  // batchId → { texts, translations }
+  var completedBatches = new Map();
 
   // 按距离当前播放位的远近排序
   function sortByPriority(batches) {
@@ -1232,12 +1306,12 @@ async function batchTranslateSentences(sentences, settings, getCurrentTime, onPr
       batch.status = 'completed';
       completedBatches.set(batch.id, { texts: batch.sentences.map(function (s) { return s.text; }), translations: cached });
       for (var ri = 0; ri < cached.length; ri++) {
-        allResults[batch.startIndex + ri] = cached[ri];
+        allResults[translateIndexMap[batch.startIndex + ri]] = cached[ri];
       }
     }
   }
 
-  debugLog('YT-Subs', 'batchTranslateSentences: ' + sentences.length + ' sentences → ' + allBatches.length + ' batches, ' + MAX_CONCURRENT + ' concurrent');
+  debugLog('YT-Subs', 'batchTranslateSentences: ' + translateSentences.length + ' to translate (' + skippedIndices.length + ' skipped) → ' + allBatches.length + ' batches, ' + MAX_CONCURRENT + ' concurrent');
 
   // 2路并发 worker
   var inFlight = 0;
@@ -1286,7 +1360,7 @@ async function batchTranslateSentences(sentences, settings, getCurrentTime, onPr
 
         // 写入结果数组 + 缓存
         for (var wi = 0; wi < batchTranslations.length; wi++) {
-          allResults[batch.startIndex + wi] = batchTranslations[wi];
+          allResults[translateIndexMap[batch.startIndex + wi]] = batchTranslations[wi];
           var ck = getSubtitleTranslationCacheKey(batch.sentences[wi].text, {
             videoId: settings.videoId, sourceLanguage: settings.sourceLanguage,
             targetLanguage: targetLang, modelKey: modelKey, modelId: model.modelId,

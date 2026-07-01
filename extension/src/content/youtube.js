@@ -317,7 +317,9 @@
         logParts.push('══════ [Translate] AI Translation Complete ══════');
         for (var ti = 0; ti < cues.length; ti++) {
           var tc = cues[ti];
-          logParts.push('[Translate] #' + ti + ' │ ' + tc.start.toFixed(3) + '→' + tc.end.toFixed(3) + ' │ ORIG: ' + tc.text + ' │ TRANS: ' + (tc.translated || '(empty)'));
+          var isSkip = tc.text === tc.translated;
+          var prefix = isSkip ? '[Skip]' : '[Translate]';
+          logParts.push(prefix + ' #' + ti + ' │ ' + tc.start.toFixed(3) + '→' + tc.end.toFixed(3) + ' │ ORIG: ' + tc.text + ' │ TRANS: ' + (tc.translated || '(empty)'));
         }
         logParts.push('══════ [Translate] END ══════');
         var fullLog = logParts.join('\n');

@@ -51,13 +51,13 @@ var LANGUAGE_REGISTRY = {
   'en': { key: 'en', name: 'English', level: 'low', source: true, target: true, i18nKey: 'sourceLang.en', aliases: ['en', 'en-US', 'en-GB', 'en-AU', 'en-CA', 'english'] },
   'ja': { key: 'ja', name: 'Japanese', level: 'high', source: true, target: true, i18nKey: 'sourceLang.ja', aliases: ['ja', 'ja-JP', 'japanese'] },
   'ko': { key: 'ko', name: 'Korean', level: 'high', source: true, target: true, i18nKey: 'sourceLang.ko', aliases: ['ko', 'ko-KR', 'korean'] },
-  'fr': { key: 'fr', name: 'French', level: 'low', source: true, target: true, i18nKey: 'sourceLang.fr', aliases: ['fr', 'fr-FR', 'french'] },
+  'fr': { key: 'fr', name: 'French', level: 'medium', source: true, target: true, i18nKey: 'sourceLang.fr', aliases: ['fr', 'fr-FR', 'french'] },
   'de': { key: 'de', name: 'German', level: 'low', source: true, target: true, i18nKey: 'sourceLang.de', aliases: ['de', 'de-DE', 'german'] },
-  'es': { key: 'es', name: 'Spanish', level: 'medium', source: true, target: true, i18nKey: 'sourceLang.es', aliases: ['es', 'es-ES', 'es-MX', 'es-419', 'spanish'] },
+  'es': { key: 'es', name: 'Spanish', level: 'high', source: true, target: true, i18nKey: 'sourceLang.es', aliases: ['es', 'es-ES', 'es-MX', 'es-419', 'spanish'] },
   'pt': { key: 'pt', name: 'Portuguese', level: 'medium', source: true, target: true, i18nKey: 'sourceLang.pt', aliases: ['pt', 'pt-PT', 'pt-BR', 'portuguese'] },
   'ar': { key: 'ar', name: 'Arabic', level: 'medium', source: true, target: true, i18nKey: 'sourceLang.ar', aliases: ['ar', 'ar-SA', 'arabic'] },
   'ru': { key: 'ru', name: 'Russian', level: 'medium', source: true, target: false, aliases: ['ru', 'ru-RU', 'russian'] },
-  'it': { key: 'it', name: 'Italian', level: 'medium', source: true, target: false, aliases: ['it', 'it-IT', 'italian'] },
+  'it': { key: 'it', name: 'Italian', level: 'high', source: true, target: true, aliases: ['it', 'it-IT', 'italian'] },
   'th': { key: 'th', name: 'Thai', level: 'high', source: true, target: false, aliases: ['th', 'th-TH', 'thai'] },
   'vi': { key: 'vi', name: 'Vietnamese', level: 'high', source: true, target: false, aliases: ['vi', 'vi-VN', 'vietnamese'] },
   'tr': { key: 'tr', name: 'Turkish', level: 'medium', source: true, target: false, aliases: ['tr', 'tr-TR', 'turkish'] },
@@ -121,6 +121,50 @@ function detectSourceLanguage(text) {
   if (/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(t)) return 'ar';
   if (/[\u0E00-\u0E7F]/.test(t)) return 'th';
   if (/[\u0400-\u04FF]/.test(t)) return 'ru';
+
+  // Latin-script language detection by diacritic density
+  var DIACRITIC_RE = /[\u00C0-\u024F\u1E00-\u1EFF\u00DF\u00F0]/;
+  var nonSpace = t.replace(/\s/g, '');
+  var nonSpaceLen = nonSpace.length;
+  if (nonSpaceLen >= 10) {
+    var diacriticCount = (nonSpace.match(DIACRITIC_RE) || []).length;
+    var ratio = diacriticCount / nonSpaceLen;
+    if (ratio >= 0.04) {
+      var hasAcute = /[\u00E1\u00E9\u00ED\u00F3\u00FA]/.test(t);  // á é í ó ú
+      var hasGrave = /[\u00E0\u00E8\u00EC\u00F2\u00F9]/.test(t);  // à è ì ò ù
+      var hasCircumflex = /[\u00E2\u00EA\u00EE\u00F4\u00FB]/.test(t); // â ê î ô û
+      var hasDiaeresis = /[\u00E4\u00EB\u00EF\u00F6\u00FC\u00FF]/.test(t); // ä ë ï ö ü ÿ
+      // Unique marker checks (strongest signal first)
+      if (/[\u00DF]/.test(t)) return 'de';                   // ß → German
+      if (/[\u00F1\u00BF\u00A1]/.test(t)) return 'es';       // ñ ¿ ¡ → Spanish
+      if (/[\u0153]/.test(t)) return 'fr';                    // œ → French
+      if (/[\u00E3\u00F5]/.test(t)) return 'pt';              // ã õ → Portuguese
+      if (/[\u00E4\u00F6\u00FC]/.test(t)) return 'de';        // ä ö ü → German
+      // Disambiguate acute vs grave vs mixed
+      if (hasAcute && hasGrave) {
+        // Acute + grave: French (é+è/à/ù) or Italian (é+è/ì/ò)
+        if (/[\u00E7]/.test(t) || hasCircumflex || hasDiaeresis) return 'fr'; // ç/ê/ë → French
+        if (/[\u00EC\u00F2]/.test(t)) return 'it';                             // ì/ò → Italian
+        return 'fr';  // default: French more common in translation context
+      }
+      if (hasAcute) {
+        // Acute only: Spanish or Portuguese
+        if (/[\u00E7]/.test(t)) return 'pt';              // ç without ã/õ → Portuguese
+        return 'es';
+      }
+      if (hasGrave) {
+        // Grave only: French or Italian
+        if (/[\u00E7]/.test(t) || hasCircumflex || hasDiaeresis) return 'fr'; // ç/ê/ë → French
+        if (/[\u00EC\u00F2]/.test(t)) return 'it';                             // ì/ò → Italian
+        return 'fr';  // default: French more common
+      }
+      if (hasCircumflex || hasDiaeresis) return 'fr';         // ê/ë without acute/grave → French
+      // Fallbacks for mixed/ambiguous
+      if (/[\u00E7]/.test(t)) return 'fr';                    // ç → French
+      return 'it';
+    }
+  }
+
   var alphaCount = (t.match(/[a-zA-Z]/g) || []).length;
   if (alphaCount / t.length >= 0.6) return 'en';
   return null;

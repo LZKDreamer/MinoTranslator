@@ -78,8 +78,13 @@ loadPersistedTasks();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const handler = messageHandlers[request.type];
-  if (!handler) return false;
+  if (!handler) {
+    console.log('[SW] unknown message type: ' + request.type);
+    return false;
+  }
+  console.log('[SW] handling: ' + request.type);
   handler(request, sender).then(sendResponse).catch((err) => {
+    console.error('[SW] handler error for ' + request.type + ': ' + err.message);
     sendResponse({ error: err.message });
   });
   return true;
@@ -92,25 +97,42 @@ const messageHandlers = {
 
   async START_VIDEO_TASK(request) {
     const videoId = request.videoId || '';
+    console.log('[SW] START_VIDEO_TASK videoId=' + videoId + ' tabId=' + request.tabId);
     if (!videoId) return { error: 'Missing videoId' };
 
     const targetLanguage = request.targetLanguage || resolveLanguage();
     const taskKey = makeTaskKey(videoId, targetLanguage);
     const existing = videoTasks.get(taskKey);
+    console.log('[SW] START_VIDEO_TASK existing=' + (existing ? existing.status : 'none') + ' taskKey=' + taskKey);
 
     if (!existing && getActiveTaskCount() >= MAX_VIDEO_TASKS) {
+      console.log('[SW] START_VIDEO_TASK blocked: max tasks');
       return { error: chrome.i18n.getMessage('maxVideoTasks') || '最多同时处理 3 个视频任务' };
     }
 
     if (existing && existing.status === STATUS.COMPLETED) {
+      console.log('[SW] START_VIDEO_TASK already completed, applying existing translations');
       await openOrFocusVideo(existing.url);
       await applyTaskToOpenTabs(existing);
       return { ok: true };
     }
 
-    const tabId = Number(request.tabId || existing?.tabId || 0);
+    // 实时查询当前打开的 tabId（不信任 popup/stored 的旧值）
+    var tabId = 0;
+    var tabs3 = await chrome.tabs.query({ url: ['https://*.youtube.com/*'] });
+    for (var t3 = 0; t3 < tabs3.length; t3++) {
+      if (extractVideoIdFromUrl(tabs3[t3].url || '') === videoId) {
+        tabId = tabs3[t3].id;
+        break;
+      }
+    }
+    if (!tabId) {
+      tabId = Number(request.tabId || existing?.tabId || 0);
+    }
+    console.log('[SW] START_VIDEO_TASK tabId=' + tabId);
     if (!tabId) return { error: chrome.i18n.getMessage('needOpenVideo') || '需要先打开该 YouTube 视频以获取字幕' };
 
+    console.log('[SW] START_VIDEO_TASK sending PREPARE_VIDEO_TRANSLATION to tab ' + tabId);
     const prepared = await sendTabMessage(tabId, {
       type: 'PREPARE_VIDEO_TRANSLATION',
       targetLanguage: targetLanguage,
@@ -256,18 +278,18 @@ const messageHandlers = {
 
   async TRANSLATE_TEXT(request) {
     const { text, modelKey } = request;
-    // 简单的语言匹配检测：如果文本已包含目标语言的典型字符，跳过翻译
     try {
       const targetLang = await StorageManager.get('targetLanguage');
       if (targetLang && text && text.length > 0 && text.length <= 2000) {
-        var skip = false;
-        if (targetLang.indexOf('zh') === 0 && /[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) {
-          skip = true;
-        } else if (targetLang.indexOf('en') === 0 && /^[a-zA-Z0-9\s.,!?;:'"()\-–—/@#$%&*+=<>]+$/.test(text)) {
-          skip = true;
-        }
-        if (skip) {
-          return { result: text, skipped: true };
+        var detectedLang = detectSourceLanguage(text);
+        if (detectedLang) {
+          var detectedResolved = resolveToLangCode(detectedLang);
+          var tgtResolved = resolveToLangCode(targetLang);
+          var dKey = detectedResolved ? detectedResolved.key : detectedLang;
+          var tKey = tgtResolved ? tgtResolved.key : String(targetLang || '').split('-')[0];
+          if (dKey === tKey) {
+            return { result: text, skipped: true };
+          }
         }
       }
     } catch (_err) {

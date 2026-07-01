@@ -56,6 +56,31 @@ Each entry key is the canonical language code. Each value SHALL contain:
 - **WHEN** `resolveToLangCode("id-ID")` is called
 - **THEN** it matches via `LANGUAGE_REGISTRY["id"].aliases` and returns `{ key: "id", entry: ... }`
 
+#### Scenario: getLanguageLevel resolves Spanish as high
+
+- **WHEN** `getLanguageLevel("es")` is called
+- **THEN** it returns `"high"`
+
+#### Scenario: getLanguageLevel resolves Italian as high
+
+- **WHEN** `getLanguageLevel("it")` is called
+- **THEN** it returns `"high"`
+
+#### Scenario: Italian appears in target language dropdown
+
+- **WHEN** `buildTargetLanguages()` is called
+- **THEN** the result includes an entry for `"it"` with `value: "it"`
+
+#### Scenario: getLanguageLevel resolves French as medium
+
+- **WHEN** `getLanguageLevel("fr")` is called
+- **THEN** it returns `"medium"`
+
+#### Scenario: Existing level assignments unchanged
+
+- **WHEN** `getLanguageLevel("ja")`, `getLanguageLevel("ko")`, `getLanguageLevel("zh-CN")`, `getLanguageLevel("zh-TW")`, `getLanguageLevel("th")`, `getLanguageLevel("vi")`, `getLanguageLevel("fil")` are called
+- **THEN** all return `"high"` (unchanged)
+
 ### Requirement: Registry-driven target language list
 
 The target language dropdown list SHALL be generated from `LANGUAGE_REGISTRY` entries where `target: true`. The first option SHALL be the `auto` entry. The function `buildTargetLanguages()` MUST produce the array.
