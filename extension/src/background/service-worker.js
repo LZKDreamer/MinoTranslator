@@ -129,7 +129,7 @@ const messageHandlers = {
 
     const apiUrl = model.apiUrl.replace(/\/+$/, '') + '/chat/completions';
 
-    // 先创建任务（status=translating），让 popup 立即看到进展
+    // 先创建任务（status=preparing），让 popup 看到正确顺序
     const task = {
       videoId, tabId,
       title: prepared.title || existing?.title || videoId,
@@ -137,7 +137,7 @@ const messageHandlers = {
       thumbnailUrl: prepared.thumbnailUrl || getYouTubeThumbnail(videoId),
       sourceLanguage: prepared.sourceLanguage || 'unknown',
       targetLanguage,
-      status: STATUS.TRANSLATING,
+      status: STATUS.PREPARING,
       progress: 0,
       completedGroups: 0,
       totalGroups: 0,
@@ -150,9 +150,13 @@ const messageHandlers = {
     persistTasks();
 
     // 触发 content script 开始批量翻译（异步，不阻塞返回）
+    // 将已准备的 cues 传过去，避免 content script 重复获取字幕
     sendTabMessage(tabId, {
       type: 'START_SUBTITLE_TRANSLATION',
       targetLanguage: targetLanguage,
+      cues: prepared.cues,
+      sourceLanguage: prepared.sourceLanguage,
+      videoTitle: prepared.title,
     }, 5000).catch(function () {});
 
     return { ok: true };
@@ -383,11 +387,31 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
       continue;
     }
 
-    if (existing && existing.status === STATUS.COMPLETED) {
+    if (existing && (existing.status === STATUS.COMPLETED || existing.status === STATUS.AVAILABLE)) {
       existing.tabId = tab.id;
+      existing.targetLanguage = targetLanguage;
       videoTasks.set(taskKey, existing);
       persistTasks();
-      applyTaskToTab(tab.id, existing).catch(() => {});
+      if (existing.status === STATUS.COMPLETED) {
+        applyTaskToTab(tab.id, existing).catch(() => {});
+      }
+      continue;
+    }
+
+    // 检查是否有 AVAILABLE 任务（targetLanguage 可能不同）
+    var availableTask = null;
+    for (var entry of videoTasks) {
+      var parsed = parseTaskKey(entry[0]);
+      if (parsed.videoId === videoId && entry[1].status === STATUS.AVAILABLE) {
+        availableTask = entry[1];
+        break;
+      }
+    }
+    if (availableTask) {
+      availableTask.tabId = tab.id;
+      availableTask.targetLanguage = targetLanguage;
+      videoTasks.set(taskKey, availableTask);
+      persistTasks();
       continue;
     }
 
@@ -422,11 +446,16 @@ async function getVideoTasks(targetLanguage, showAllCompleted) {
 
   return {
     items: (function () {
+      const openVideoIds = new Set(
+        tabs.filter(isYouTubeVideoTab).map(function (tab) { return extractVideoIdFromUrl(tab.url || ''); })
+      );
       const tasks = Array.from(videoTasks.values())
-        .filter(task => task.targetLanguage === targetLanguage)
-        .filter(task => task.status !== STATUS.CANCELED);
-      const active = tasks.filter(t => t.status !== STATUS.COMPLETED);
-      const done = tasks.filter(t => t.status === STATUS.COMPLETED)
+        .filter(function (task) { return task.targetLanguage === targetLanguage; })
+        .filter(function (task) { return task.status !== STATUS.CANCELED; })
+        .filter(function (task) { return task.status !== STATUS.AVAILABLE || openVideoIds.has(task.videoId); });
+      const active = tasks.filter(function (t) { return t.status !== STATUS.COMPLETED; })
+        .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+      const done = tasks.filter(function (t) { return t.status === STATUS.COMPLETED; })
         .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       const MAX_COMPLETED_SHOWN = 10;
       const hasMoreCompleted = !showAllCompleted && done.length > MAX_COMPLETED_SHOWN;

@@ -145,6 +145,10 @@ function resolveLanguage(raw) {
  */
 function getDisplayLangName(code, tFn) {
   var entry = LANGUAGE_REGISTRY[code];
+  if (!entry) {
+    var resolved = resolveToLangCode(code);
+    entry = resolved ? resolved.entry : null;
+  }
   if (!entry || entry.isAuto) return code || '?';
   if (tFn && entry.i18nKey) {
     var localized = tFn(entry.i18nKey);

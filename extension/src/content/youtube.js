@@ -53,7 +53,7 @@
       }
 
       if (request.type === 'START_SUBTITLE_TRANSLATION') {
-        startTranslation(request.targetLanguage).then(sendResponse).catch(function (err) {
+        startTranslation(request).then(sendResponse).catch(function (err) {
           sendResponse({ error: err.message });
         });
         return true;
@@ -122,7 +122,38 @@
         resetInterceptorState();
         // 清除旧视频的字幕，防止残留
         renderer.clear();
+
+        // 主动上报检测结果到 SW，让 popup 即时可见
+        detectAndReportVideo(newId);
       }
+    }
+
+    async function detectAndReportVideo(videoId) {
+      try {
+        // 直接用 extractFromPlayerResponse（同步读 DOM），不用 quickDetectSubtitles
+        // 避免提前缓存 { available: false } 导致后续 DETECT 永久失败
+        var captionsData = extractFromPlayerResponse(SOURCE_LANGUAGE_DEFAULT);
+        if (!captionsData) {
+          // YouTube 可能还没注入 player response，等 2s 重试一次
+          await delay(2000);
+          captionsData = extractFromPlayerResponse(SOURCE_LANGUAGE_DEFAULT);
+        }
+        if (!captionsData) return;
+        var sourceLang = captionsData.language || 'unknown';
+        var targetLang = resolveLanguage();
+        reportTask({
+          videoId: videoId,
+          status: STATUS.AVAILABLE,
+          sourceLanguage: sourceLang,
+          title: getCurrentTitle(),
+          targetLanguage: targetLang,
+          thumbnailUrl: 'https://i.ytimg.com/vi/' + videoId + '/default.jpg',
+          progress: 0,
+          completedGroups: 0,
+          totalGroups: 0,
+          cues: [],
+        });
+      } catch (_e) { /* 静默失败，不影响 checkForVideo 的正常流程 */ }
     }
 
     let currentTargetLanguage = '';
@@ -188,7 +219,12 @@
       };
     }
 
-    async function startTranslation(targetLanguage) {
+    async function startTranslation(request) {
+      var targetLanguage = request.targetLanguage || '';
+      var preCues = request.cues || null;
+      var preSourceLang = request.sourceLanguage || null;
+      var preVideoTitle = request.videoTitle || null;
+
       checkForVideo();
       const videoId = currentVideoId || getCurrentVideoId();
       const videoEl = document.querySelector('video');
@@ -202,26 +238,33 @@
       resetInterceptorState();
 
       const settings = await loadSettings(targetLanguage);
-      var preferredSourceLang = settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
-      debugLog('YT-Translator', 'startTranslation: sourceLanguage=' + preferredSourceLang + ' targetLanguage=' + settings.targetLanguage);
-      reportTask({ status: STATUS.PREPARING, videoId, title: getCurrentTitle(), targetLanguage: settings.targetLanguage, progress: 0 });
+      debugLog('YT-Translator', 'startTranslation: sourceLanguage=' + (preSourceLang || settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT) + ' targetLanguage=' + settings.targetLanguage);
 
-      // 获取字幕 + 本地断句
-      const subtitleData = await fetchSubtitles(videoId, preferredSourceLang);
-      if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
-        hasActiveTranslation = false;
-        reportTask({ status: STATUS.FAILED, error: 'No subtitles available' });
-        return { ok: false, error: 'No subtitles available' };
-      }
-      if (isSameLanguage(subtitleData.language, settings.targetLanguage)) {
-        hasActiveTranslation = false;
-        reportTask({ status: STATUS.CANCELED });
-        return { ok: true, skipped: true };
+      var subtitleData;
+      if (preCues && preCues.length > 0 && preSourceLang) {
+        // SW 已准备好字幕数据，跳过重复获取
+        subtitleData = { sentences: preCues, language: preSourceLang };
+        if (preVideoTitle) settings.videoTitle = preVideoTitle;
+        debugLog('YT-Translator', 'startTranslation: using pre-prepared cues (' + preCues.length + ' sentences)');
+      } else {
+        // 降级路径：SW 没传 cues（兼容旧版或直接调用）
+        reportTask({ status: STATUS.PREPARING, videoId, title: getCurrentTitle(), targetLanguage: settings.targetLanguage, progress: 0 });
+        subtitleData = await fetchSubtitles(videoId, settings.sourceLanguage || SOURCE_LANGUAGE_DEFAULT);
+        if (!subtitleData.sentences || subtitleData.sentences.length === 0) {
+          hasActiveTranslation = false;
+          reportTask({ status: STATUS.FAILED, error: 'No subtitles available' });
+          return { ok: false, error: 'No subtitles available' };
+        }
+        if (isSameLanguage(subtitleData.language, settings.targetLanguage)) {
+          hasActiveTranslation = false;
+          reportTask({ status: STATUS.CANCELED });
+          return { ok: true, skipped: true };
+        }
       }
 
       settings.videoId = videoId;
       settings.sourceLanguage = subtitleData.language || 'unknown';
-      settings.videoTitle = getCurrentTitle();
+      if (!preVideoTitle) settings.videoTitle = getCurrentTitle();
 
       // 初始化渲染器（先显示原文）
       var cues = subtitleData.sentences.map(function (s) {

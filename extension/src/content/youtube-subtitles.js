@@ -164,7 +164,9 @@ function extractFromPlayerResponse(preferredLang) {
           if (captions?.captionTracks?.length > 0) {
             var track = selectBestTrack(captions.captionTracks, captions.audioTracks, preferredLang);
             debugLog('YT-Subs', 'selected track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
-            return { baseUrl: track.baseUrl, language: track.languageCode || track.name?.simpleText || 'unknown' };
+            var langCode = (track.languageCode || '');
+            var resolved = resolveToLangCode(langCode);
+            return { baseUrl: track.baseUrl, language: resolved ? resolved.key : (langCode || 'unknown') };
           }
         } catch (parseErr) {
           console.warn('[YT-Subs] JSON parse failed:', parseErr.message, 'try fetchFromPage instead');
@@ -230,15 +232,27 @@ function selectBestTrack(tracks, audioTracks, preferredLang) {
       debugLog('YT-Subs', 'selectBestTrack: MANUAL match "' + preferredLang + '" FOUND at track[' + tracks.indexOf(exactMatch) + ']');
       return exactMatch;
     }
-    debugLog('YT-Subs', 'selectBestTrack: MANUAL lang "' + preferredLang + '" NOT FOUND in tracks, fallback to [0]');
-    return tracks[0];
+    // 未匹配到 → 尝试 audio 匹配，不行再降级到 tracks[0]
+    debugLog('YT-Subs', 'selectBestTrack: MANUAL lang "' + preferredLang + '" NOT FOUND, trying audio match...');
   }
 
   // 智能匹配（auto）：优先匹配音频语言
   var audioLang = null;
   if (audioTracks && audioTracks.length > 0) {
-    audioLang = audioTracks[0].audioLanguageCode || audioTracks[0].languageCode;
-    debugLog('YT-Subs', 'selectBestTrack: audioTracks[0] lang=' + audioLang);
+    var at = audioTracks[0];
+    // 1. defaultCaptionTrackIndex → 反查 captionTracks（YouTube 推荐的字幕）
+    if (at.defaultCaptionTrackIndex != null && tracks[at.defaultCaptionTrackIndex]) {
+      audioLang = tracks[at.defaultCaptionTrackIndex].languageCode || null;
+    }
+    // 2. captionTrackIndices[0] → 反查 captionTracks（该音轨关联的字幕）
+    if (!audioLang && at.captionTrackIndices && at.captionTrackIndices.length > 0 && tracks[at.captionTrackIndices[0]]) {
+      audioLang = tracks[at.captionTrackIndices[0]].languageCode || null;
+    }
+    // 3. audioTrackId → 提取前缀（多音轨配音场景："ko.10" → "ko"）
+    if (!audioLang && at.audioTrackId) {
+      audioLang = String(at.audioTrackId).split('.')[0] || null;
+    }
+    debugLog('YT-Subs', 'selectBestTrack: audioTracks[0] lang=' + (audioLang || 'none'));
   }
 
   if (audioLang) {
@@ -255,11 +269,13 @@ function selectBestTrack(tracks, audioTracks, preferredLang) {
   // 无音频匹配 → fallback：优先选 ASR 轨道（自动语音识别 = 视频原语言）
   // YouTube 按浏览器 locale 排序轨道时 tracks[0] 可能是翻译轨道，而非原语言
   var asrTrack = null;
+  var translatableTrack = null;
   for (var ti = 0; ti < tracks.length; ti++) {
-    if (tracks[ti].kind === 'asr') { asrTrack = tracks[ti]; break; }
+    if (!asrTrack && tracks[ti].kind === 'asr') { asrTrack = tracks[ti]; }
+    if (!translatableTrack && tracks[ti].isTranslatable !== false) { translatableTrack = tracks[ti]; }
   }
-  var fallback = asrTrack || tracks[0];
-  debugLog('YT-Subs', 'selectBestTrack: FALLBACK ' + (asrTrack ? 'ASR track[' + tracks.indexOf(asrTrack) + ']: ' + (asrTrack.languageCode || '?') : 'tracks[0]: ' + (tracks[0].languageCode || '?')));
+  var fallback = asrTrack || translatableTrack || tracks[0];
+  debugLog('YT-Subs', 'selectBestTrack: FALLBACK ' + (asrTrack ? 'ASR track[' + tracks.indexOf(asrTrack) + ']: ' + (asrTrack.languageCode || '?') : (translatableTrack ? 'translatable track: ' + (translatableTrack.languageCode || '?') : 'tracks[0]: ' + (tracks[0].languageCode || '?'))));
   return fallback;
 }
 
@@ -305,7 +321,9 @@ async function fetchFromPage(videoId, preferredLang) {
       if (tracks.length > 0) {
         var track = selectBestTrack(tracks, audioTracks, preferredLang);
         debugLog('YT-Subs', 'fetchFromPage: selected track: ' + (track.languageCode || '?') + ' baseUrl: ' + !!track.baseUrl);
-        return { baseUrl: track.baseUrl, language: track.languageCode || 'unknown' };
+        var langCode = (track.languageCode || '');
+        var resolved = resolveToLangCode(langCode);
+        return { baseUrl: track.baseUrl, language: resolved ? resolved.key : (langCode || 'unknown') };
       }
     }
   } catch (e) {
