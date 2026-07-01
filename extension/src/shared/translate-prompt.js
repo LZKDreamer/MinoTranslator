@@ -8,15 +8,13 @@ var TranslatePrompt = (function () {
   'use strict';
 
   // ======== 语言等级 ========
-  // high:   主语频繁省略、敬语体系、高度上下文依赖（ko, ja, zh, th, vi）
-  // medium: pro-drop / 部分省略（ar, es, it, pt, hi, tr, id, ms, ru, uk, el, bn, ro, fa, pl, cs, sk, sr, hr, sw, hu, fi）
-  // low:    主语强制出现，语法信息词面完整（en, fr, de, nl, sv, no, da...）
   function getLanguageLevel(lang) {
     if (!lang || lang === 'unknown') return 'medium';
-    var code = lang.split(/[-_]/)[0].toLowerCase();
-    if (['ko', 'ja', 'zh', 'th', 'vi'].indexOf(code) !== -1) return 'high';
-    if (['ar', 'es', 'it', 'pt', 'hi', 'tr', 'id', 'ms', 'ru', 'uk', 'el', 'bn', 'ro', 'fa', 'pl', 'cs', 'sk', 'sr', 'hr', 'sw', 'hu', 'fi'].indexOf(code) !== -1) return 'medium';
-    return 'low';
+    var resolved = resolveToLangCode(String(lang).split(/[-_]/)[0]);
+    if (resolved && resolved.entry.level) return resolved.entry.level;
+    resolved = resolveToLangCode(lang);
+    if (resolved && resolved.entry.level) return resolved.entry.level;
+    return 'medium';
   }
 
   function getContextWindowSize(sourceLanguage) {
@@ -28,23 +26,9 @@ var TranslatePrompt = (function () {
 
   // ======== 语言名称映射 ========
   function getLangName(lang) {
-    if (lang === 'zh-CN') return 'Simplified Chinese';
-    if (lang === 'zh-TW') return 'Traditional Chinese';
-    if (lang === 'en') return 'English';
-    if (lang === 'ko') return 'Korean';
-    if (lang === 'ja') return 'Japanese';
-    if (lang === 'ar') return 'Arabic';
-    if (lang === 'es') return 'Spanish';
-    if (lang === 'fr') return 'French';
-    if (lang === 'de') return 'German';
-    if (lang === 'ru') return 'Russian';
-    if (lang === 'pt') return 'Portuguese';
-    if (lang === 'it') return 'Italian';
-    if (lang === 'th') return 'Thai';
-    if (lang === 'vi') return 'Vietnamese';
-    if (lang === 'tr') return 'Turkish';
-    if (lang === 'nl') return 'Dutch';
-    if (lang === 'pl') return 'Polish';
+    if (!lang) return 'the source language';
+    var resolved = resolveToLangCode(lang);
+    if (resolved && !resolved.entry.isAuto) return resolved.entry.name;
     return lang || 'target language';
   }
 
@@ -223,7 +207,8 @@ var TranslatePrompt = (function () {
   function cleanCueText(text, opts) {
     var o = opts || {};
     var cleaned = String(text || '');
-    var code = (o.sourceLanguage || '').split(/[-_]/)[0].toLowerCase();
+    var resolved = resolveToLangCode(o.sourceLanguage);
+    var code = resolved ? resolved.key : (o.sourceLanguage || '').split(/[-_]/)[0].toLowerCase();
 
     // 通用清洗
     cleaned = cleaned.replace(/<[^>]+>/g, '');           // HTML 标签

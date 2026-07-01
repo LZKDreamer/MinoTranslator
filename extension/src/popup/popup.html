@@ -30,12 +30,7 @@
 
     <label class="target-row">
       <span class="setting-label" data-i18n="popup.sourceLanguage">源语言</span>
-      <div class="select-wrapper">
-        <select id="sourceLanguage"></select>
-        <svg class="select-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
+      <span id="sourceLanguageDisplay" class="source-lang-display">—</span>
     </label>
     <label class="target-row">
       <span class="setting-label" data-i18n="popup.targetLanguage">目标语言</span>
@@ -62,6 +57,7 @@
       </div>
       <div class="video-meta">
         <div class="video-title"></div>
+        <div class="video-lang"></div>
         <div class="video-status"></div>
       </div>
       <button class="video-action" type="button"></button>

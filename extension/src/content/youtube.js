@@ -223,13 +223,6 @@
       settings.sourceLanguage = subtitleData.language || 'unknown';
       settings.videoTitle = getCurrentTitle();
 
-      // 手动源语言与检测不符时提示
-      if (preferredSourceLang && preferredSourceLang !== 'auto' && subtitleData.language && normalizeLanguageCode(preferredSourceLang) !== normalizeLanguageCode(subtitleData.language)) {
-        console.warn('[YT-Translator] sourceLang mismatch: selected=' + preferredSourceLang + ' detected=' + subtitleData.language);
-        // 通过 reportTask 通知 UI 层
-        reportTask({ sourceLangFallback: true, expectedSourceLang: preferredSourceLang, actualSourceLang: subtitleData.language });
-      }
-
       // 初始化渲染器（先显示原文）
       var cues = subtitleData.sentences.map(function (s) {
         return { start: s.start, end: s.end, text: s.text, translated: null };
@@ -389,7 +382,6 @@
       const rawSettings = await new Promise(function (resolve) {
         chrome.storage.sync.get(null, resolve);
       });
-      // 解密 models 中的 apiKey 字段
       if (rawSettings.models) {
         rawSettings.models = await ApiKeyCrypto.decryptModels(rawSettings.models);
       }
@@ -415,13 +407,30 @@
           },
         },
       };
-      const rawTargetLang = targetLanguage || rawSettings.targetLanguage || defaults.targetLanguage;
-      const settings = Object.assign({}, defaults, rawSettings, {
+      var rawTargetLang = targetLanguage || rawSettings.targetLanguage || defaults.targetLanguage;
+      var resolvedTarget = rawTargetLang;
+      if (rawTargetLang === 'auto') {
+        var ytLang = detectYouTubeUILang();
+        resolvedTarget = ytLang || resolveLanguage();
+      }
+      var settings = Object.assign({}, defaults, rawSettings, {
         translationEnabled: true,
-        targetLanguage: (rawTargetLang === 'auto') ? resolveLanguage() : rawTargetLang,
+        sourceLanguage: SOURCE_LANGUAGE_DEFAULT,
+        targetLanguage: resolvedTarget,
       });
       settings.models = Object.assign({}, defaults.models, rawSettings.models || {});
       return settings;
+    }
+
+    function detectYouTubeUILang() {
+      try {
+        var htmlLang = document.documentElement.lang;
+        if (htmlLang) {
+          var resolved = resolveLanguage(htmlLang);
+          if (resolved && resolved !== 'en') return resolved;
+        }
+      } catch (_e) {}
+      return null;
     }
 
     function reportTask(payload) {
@@ -453,18 +462,11 @@
   }
 
   function isSameLanguage(sourceLanguage, targetLanguage) {
-    return normalizeLanguage(sourceLanguage) === normalizeLanguage(targetLanguage);
-  }
-
-  function normalizeLanguage(language) {
-    const value = String(language || '').toLowerCase();
-    if (value === 'zh' || value.startsWith('zh-') || value.includes('chinese') || value.includes('中文')) {
-      return 'zh';
-    }
-    if (value === 'en' || value.startsWith('en-') || value.includes('english')) {
-      return 'en';
-    }
-    return value.split('-')[0] || 'unknown';
+    var srcResolved = resolveToLangCode(sourceLanguage);
+    var tgtResolved = resolveToLangCode(targetLanguage);
+    var srcKey = srcResolved ? srcResolved.key : (String(sourceLanguage || '').split('-')[0] || '');
+    var tgtKey = tgtResolved ? tgtResolved.key : (String(targetLanguage || '').split('-')[0] || '');
+    return srcKey === tgtKey;
   }
 
   function delay(ms) {

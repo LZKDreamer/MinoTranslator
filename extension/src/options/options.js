@@ -109,7 +109,7 @@
   const $testModelBtn = document.getElementById('testModelBtn');
   const $deleteModelBtn = document.getElementById('deleteModelBtn');
   const $addModelBtn = document.getElementById('addModelBtn');
-  const $sourceLanguage = document.getElementById('sourceLanguage');
+  const $sourceLanguageDesc = document.getElementById('sourceLanguageDesc');
   const $targetLanguage = document.getElementById('targetLanguage');
   const $bgOpacity = document.getElementById('bgOpacity');
   const $bgOpacityValue = document.getElementById('bgOpacityValue');
@@ -515,42 +515,19 @@
 
   /* ── Language Selects ───────────────────── */
   function renderLanguageSelects() {
-    // 源语言下拉
-    $sourceLanguage.innerHTML = '';
-    for (var i = 0; i < SOURCE_LANGUAGES.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = SOURCE_LANGUAGES[i].value;
-      opt.textContent = t(SOURCE_LANGUAGES[i].labelKey, SOURCE_LANGUAGES[i].value);
-      $sourceLanguage.appendChild(opt);
-    }
-    // 目标语言下拉（不含 auto）
-    $targetLanguage.innerHTML = '';
-    for (var j = 0; j < TARGET_LANGUAGES.length; j++) {
-      var topt = document.createElement('option');
-      topt.value = TARGET_LANGUAGES[j].value;
-      topt.textContent = t(TARGET_LANGUAGES[j].labelKey, TARGET_LANGUAGES[j].value);
-      $targetLanguage.appendChild(topt);
-    }
+    buildTargetLangSelect($targetLanguage, t);
   }
 
   function setResolvedLanguageValues() {
-    // 源语言：直接取存储值
-    $sourceLanguage.value = state.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
-    // 目标语言：auto 时解析为浏览器语言
-    var targetVal = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
-    if (targetVal === 'auto') {
-      targetVal = resolveLanguage();
-      if (!$targetLanguage.querySelector('option[value="' + targetVal + '"]')) {
-        targetVal = TARGET_LANGUAGES[0].value;
-      }
+    $targetLanguage.value = resolveTargetValue(state.targetLanguage);
+    if (!$targetLanguage.querySelector('option[value="' + $targetLanguage.value + '"]')) {
+      var first = buildTargetLanguages()[1];
+      $targetLanguage.value = first ? first.value : 'en';
     }
-    $targetLanguage.value = targetVal;
   }
 
   function getEffectiveTargetLanguage() {
-    var val = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
-    if (val === 'auto') return resolveLanguage();
-    return val;
+    return resolveTargetValue(state.targetLanguage);
   }
 
   /* ── Other Event Bindings ──────────────── */
@@ -571,11 +548,6 @@
 
   $targetLanguage.addEventListener('change', function () {
     saveState({ targetLanguage: $targetLanguage.value });
-    checkAndShowSettingsPendingToast();
-  });
-
-  $sourceLanguage.addEventListener('change', function () {
-    saveState({ sourceLanguage: $sourceLanguage.value });
     checkAndShowSettingsPendingToast();
   });
 

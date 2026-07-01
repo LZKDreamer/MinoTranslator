@@ -58,7 +58,7 @@
   let isRefreshing = false;
   let _messages = {};
 
-  const $sourceLang = document.getElementById('sourceLanguage');
+  const $sourceDisplay = document.getElementById('sourceLanguageDisplay');
   const $targetLang = document.getElementById('targetLanguage');
   const $settingsBtn = document.getElementById('openSettings');
   const $configBanner = document.getElementById('configBanner');
@@ -85,45 +85,20 @@
   }
 
   function renderLanguageSelects() {
-    // 源语言下拉
-    $sourceLang.innerHTML = '';
-    for (var i = 0; i < SOURCE_LANGUAGES.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = SOURCE_LANGUAGES[i].value;
-      opt.textContent = t(SOURCE_LANGUAGES[i].labelKey, SOURCE_LANGUAGES[i].value);
-      $sourceLang.appendChild(opt);
-    }
-    // 目标语言下拉（不含 auto）
-    $targetLang.innerHTML = '';
-    for (var j = 0; j < TARGET_LANGUAGES.length; j++) {
-      var topt = document.createElement('option');
-      topt.value = TARGET_LANGUAGES[j].value;
-      topt.textContent = t(TARGET_LANGUAGES[j].labelKey, TARGET_LANGUAGES[j].value);
-      $targetLang.appendChild(topt);
-    }
+    buildTargetLangSelect($targetLang, t);
   }
 
   function setResolvedLanguageValues() {
-    // 源语言：直接取存储值
-    $sourceLang.value = state.sourceLanguage || SOURCE_LANGUAGE_DEFAULT;
-    // 目标语言：auto 时解析为浏览器语言
-    var targetVal = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
-    if (targetVal === 'auto') {
-      targetVal = resolveLanguage();
-      // 确保解析结果在下拉选项中存在
-      if (!$targetLang.querySelector('option[value="' + targetVal + '"]')) {
-        targetVal = TARGET_LANGUAGES[0].value;
-      }
+    $sourceDisplay.textContent = t('sourceLang.auto', '自动检测');
+    $targetLang.value = resolveTargetValue(state.targetLanguage);
+    if (!$targetLang.querySelector('option[value="' + $targetLang.value + '"]')) {
+      var first = buildTargetLanguages()[1];
+      $targetLang.value = first ? first.value : 'en';
     }
-    $targetLang.value = targetVal;
   }
 
   function getEffectiveTargetLanguage() {
-    var val = state.targetLanguage || TARGET_LANGUAGE_DEFAULT;
-    if (val === 'auto') {
-      return resolveLanguage();
-    }
-    return val;
+    return resolveTargetValue(state.targetLanguage);
   }
 
   async function saveState(partial) {
@@ -164,23 +139,21 @@
   }
 
   function getStatusLabel(item) {
-    if (item.status === STATUS.TRANSLATING) return t('popup.statusTranslating');
-    if (item.status === STATUS.PREPARING) return t('popup.statusPreparing');
-    if (item.status === STATUS.FAILED) return t('popup.statusFailed');
-    if (item.status === STATUS.COMPLETED) {
-      var src = formatLangCode(item.sourceLanguage || '?');
-      var tgt = formatLangCode(item.targetLanguage || '?');
-      return src + ' → ' + tgt;
-    }
-    if (item.status === STATUS.CANCELED) return t('popup.statusCanceled');
-    if (item.status === STATUS.AVAILABLE) return t('popup.statusAvailable');
-    return '';
+    var src = getDisplayLangName(item.sourceLanguage, t);
+    var tgt = getDisplayLangName(item.targetLanguage, t);
+    var pair = src + ' → ' + tgt;
+    var status = null;
+    if (item.status === STATUS.TRANSLATING) status = t('popup.statusTranslating', '翻译中...');
+    else if (item.status === STATUS.PREPARING) status = t('popup.statusPreparing', '准备字幕');
+    else if (item.status === STATUS.FAILED) status = t('popup.statusFailed', '失败');
+    else if (item.status === STATUS.AVAILABLE) status = t('popup.statusAvailable', '可翻译');
+    else if (item.status === STATUS.CANCELED) return { lang: '', status: t('popup.statusCanceled', '已取消') };
+    return { lang: pair, status: status };
   }
 
-  function formatLangCode(lang) {
-    if (!lang || lang === 'unknown' || lang === 'auto') return '?';
-    var parts = String(lang).split('-');
-    return parts[0];
+  function updateSourceLanguageDisplay(sourceCode) {
+    if (!sourceCode || sourceCode === 'unknown' || sourceCode === 'auto') return;
+    $sourceDisplay.textContent = getDisplayLangName(sourceCode, t);
   }
 
   function setProgress($ring, percent, isIndeterminate) {
@@ -193,6 +166,7 @@
   }
 
   function renderEmpty() {
+    $sourceDisplay.textContent = t('sourceLang.auto', '自动检测');
     $videoList.innerHTML = '<div class="empty-state">' + t('popup.emptyState', '打开有字幕的 YouTube 视频后可在这里翻译') + '</div>';
   }
 
@@ -220,9 +194,21 @@
     }
 
     if (!items.length) {
+      $sourceDisplay.textContent = t('sourceLang.auto', '自动检测');
       renderEmpty();
       return;
     }
+
+    var detectedSource = '';
+    for (var di = 0; di < items.length && !detectedSource; di++) {
+      var it = items[di];
+      if (it.status !== STATUS.AVAILABLE && it.status !== STATUS.PREPARING && it.status !== STATUS.TRANSLATING) continue;
+      if (it.sourceLanguage && it.sourceLanguage !== 'unknown' && it.sourceLanguage !== 'auto') {
+        detectedSource = it.sourceLanguage;
+      }
+    }
+    if (detectedSource) updateSourceLanguageDisplay(detectedSource);
+    else $sourceDisplay.textContent = t('sourceLang.auto', '自动检测');
 
     // 移除已不在列表中的 item
     const keepVideoIds = new Set(items.map(i => i.videoId));
@@ -241,6 +227,7 @@
       const $thumb = $item.querySelector('.video-thumb');
       const $ring = $item.querySelector('.progress-ring-value');
       const $title = $item.querySelector('.video-title');
+      const $lang = $item.querySelector('.video-lang');
       const $status = $item.querySelector('.video-status');
       const $button = $item.querySelector('.video-action');
       const action = getActionForStatus(item.status);
@@ -250,18 +237,16 @@
       $thumb.src = item.thumbnailUrl || '';
       $thumb.hidden = !item.thumbnailUrl;
       $title.textContent = item.title || item.videoId || 'YouTube ' + t('popup.statusAvailable', '视频');
-      $status.textContent = getStatusLabel(item);
-      $status.classList.toggle('is-error', item.status === STATUS.FAILED);
-
-      // 源语言不匹配提示 — 弹 Toast 并恢复下拉框为自动（仅一次）
-      if (item.sourceLangFallback && state.sourceLanguage && state.sourceLanguage !== SOURCE_LANGUAGE_DEFAULT) {
-        var expectedName = t('sourceLang.' + (item.expectedSourceLang || ''), item.expectedSourceLang || '');
-        showToast(t('toast.sourceLangNotFound', '未找到所选语言的字幕').replace('{0}', expectedName || item.expectedSourceLang || '?'));
-
-        // 恢复源语言为自动检测，下次打开 popup 不会再弹
-        saveState({ sourceLanguage: SOURCE_LANGUAGE_DEFAULT });
-        setResolvedLanguageValues();
+      var label = getStatusLabel(item);
+      $lang.textContent = label.lang;
+      $lang.hidden = !label.lang;
+      if (label.status) {
+        $status.textContent = label.status;
+        $status.hidden = false;
+      } else {
+        $status.hidden = true;
       }
+      $status.classList.toggle('is-error', item.status === STATUS.FAILED);
 
       // 只有在按钮不在 pending 过渡态时才更新按钮文案/意图
       if ($button.dataset.intent !== 'pending') {
@@ -437,12 +422,10 @@
         updateConfigBanner();
       }
       // 语言设置变更时刷新下拉显示
-      if (changes.targetLanguage) {
-        state.targetLanguage = changes.targetLanguage.newValue;
-        setResolvedLanguageValues();
-      }
-      if (changes.sourceLanguage) {
-        state.sourceLanguage = changes.sourceLanguage.newValue;
+      if (changes.sourceLanguage || changes.targetLanguage) {
+        if (changes.sourceLanguage) state.sourceLanguage = changes.sourceLanguage.newValue;
+        if (changes.targetLanguage) state.targetLanguage = changes.targetLanguage.newValue;
+        renderLanguageSelects();
         setResolvedLanguageValues();
       }
     });
@@ -460,11 +443,8 @@
     $targetLang.addEventListener('change', async function () {
       await saveState({ targetLanguage: $targetLang.value });
       await checkAndShowSettingsPendingToast();
-      await refreshVideos();
-    });
-    $sourceLang.addEventListener('change', async function () {
-      await saveState({ sourceLanguage: $sourceLang.value });
-      await checkAndShowSettingsPendingToast();
+      renderLanguageSelects();
+      setResolvedLanguageValues();
       await refreshVideos();
     });
     $videoList.addEventListener('click', handleClick);

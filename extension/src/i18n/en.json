@@ -46,6 +46,7 @@
     "deleteBtn": "Delete",
     "langSection": "Language Settings",
     "sourceLanguage": "Source Language",
+    "sourceAutoDesc": "Auto-detected from video audio track",
     "targetLanguage": "Target Language",
     "uiLangSection": "UI Language",
     "langAuto": "Auto Detect",

@@ -161,6 +161,14 @@ body::before {
   pointer-events: none;
 }
 
+.source-lang-display {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink);
+  min-width: 122px;
+  text-align: right;
+}
+
 .video-list {
   display: flex;
   flex-direction: column;
@@ -169,7 +177,7 @@ body::before {
 
 .video-item {
   gap: 10px;
-  min-height: 58px;
+  min-height: 62px;
   padding: 10px;
   border-radius: 10px;
   background: var(--color-bg);
@@ -263,8 +271,18 @@ body::before {
   line-height: 1.35;
 }
 
-.video-status {
+.video-lang {
   font-size: 12px;
+  font-weight: 500;
+  color: var(--color-ink);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-status {
+  font-size: 11px;
   color: var(--color-muted);
   line-height: 1.35;
   overflow: hidden;

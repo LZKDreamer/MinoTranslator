@@ -264,19 +264,20 @@ function selectBestTrack(tracks, audioTracks, preferredLang) {
 }
 
 function findTrackByLang(tracks, lang) {
-  var normalizedTarget = normalizeLanguageCode(lang);
+  var resolved = resolveToLangCode(lang);
+  var normalizedTarget = resolved ? resolved.key : primaryLangPart(lang);
   for (var i = 0; i < tracks.length; i++) {
     var track = tracks[i];
-    var trackLang = normalizeLanguageCode(track.languageCode || '');
+    var trackResolved = resolveToLangCode(track.languageCode || '');
+    var trackLang = trackResolved ? trackResolved.key : primaryLangPart(track.languageCode || '');
     if (trackLang === normalizedTarget) return track;
   }
   return null;
 }
 
-function normalizeLanguageCode(code) {
+function primaryLangPart(code) {
   if (!code) return '';
-  var parts = String(code).toLowerCase().split(/[-_]/);
-  return parts[0];
+  return String(code).toLowerCase().split(/[-_]/)[0];
 }
 
 /**
