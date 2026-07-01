@@ -23,7 +23,7 @@ const Translator = (() => {
     if (!text || !text.trim()) return '';
 
     const models = await StorageManager.get('models');
-    const targetLang = await StorageManager.get('targetLanguage');
+    const targetLang = resolveTargetValue(await StorageManager.get('targetLanguage'));
     const resolvedKey = modelKey || 'agnes-ai';
     const model = models[resolvedKey];
 
@@ -42,9 +42,11 @@ const Translator = (() => {
     }
 
     // Build prompt using shared module
+    const sourceLang = detectSourceLanguage(text);
     const prompt = TranslatePrompt.buildFloatingPrompt({
       text: text,
       targetLanguage: targetLang,
+      sourceLanguage: sourceLang,
     });
 
     const response = await fetch(`${model.apiUrl.replace(/\/+$/, '')}/chat/completions`, {

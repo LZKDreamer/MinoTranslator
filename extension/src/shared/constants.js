@@ -107,6 +107,26 @@ function resolveToLangCode(code) {
 }
 
 /**
+ * 基于 Unicode 字符集范围检测文本源语言
+ * 优先级从特殊到通用，解决 CJK 冲突：kana→ja, hangul→ko, CJK→zh-CN
+ * @param {string} text - 待检测文本
+ * @returns {string|null} 语言代码，无法识别时返回 null
+ */
+function detectSourceLanguage(text) {
+  if (!text || !text.trim()) return null;
+  var t = text.trim();
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(t)) return 'ja';
+  if (/[\uAC00-\uD7AF]/.test(t)) return 'ko';
+  if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(t)) return 'zh-CN';
+  if (/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(t)) return 'ar';
+  if (/[\u0E00-\u0E7F]/.test(t)) return 'th';
+  if (/[\u0400-\u04FF]/.test(t)) return 'ru';
+  var alphaCount = (t.match(/[a-zA-Z]/g) || []).length;
+  if (alphaCount / t.length >= 0.6) return 'en';
+  return null;
+}
+
+/**
  * 从 registry 动态生成目标语言下拉列表
  * @returns {Array<{value: string, i18nKey: string|null, name: string}>}
  */

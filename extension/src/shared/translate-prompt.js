@@ -176,20 +176,38 @@ var TranslatePrompt = (function () {
    * @param {Object} opts
    * @param {string} opts.text - 待翻译文本
    * @param {string} opts.targetLanguage - 目标语言代码
+   * @param {string} [opts.sourceLanguage] - 源语言代码（可选，用于方向锚定）
    * @returns {{ system: string, user: string }}
    */
   function buildFloatingPrompt(opts) {
     var targetName = getLangName(opts.targetLanguage);
+    var sourceName = opts.sourceLanguage ? getLangName(opts.sourceLanguage) : null;
 
-    var system = [
-      'You are a translator. Translate the following text to natural, accurate ' + targetName + '.',
-      'Preserve the original meaning, tone, and intent.',
-      'Use natural ' + targetName + ' expressions — avoid stiff, literal, or machine-like phrasing.',
-      'Output ONLY the translation. No explanations, no greetings, no notes.',
-    ].join('\n');
+    var systemLines = [];
+
+    // CRITICAL 级输出约束（对齐 buildBatchTranslatePrompt）
+    systemLines.push('CRITICAL — READ THIS FIRST:');
+    systemLines.push('- Your ONLY task is to translate. Output must be in ' + targetName + ' ONLY.');
+    if (sourceName) {
+      systemLines.push('- NEVER output any ' + sourceName + ' text. NEVER mix languages in the output.');
+      systemLines.push('- If you output even one ' + sourceName + ' word, the entire response is a FAILURE.');
+    } else {
+      systemLines.push('- NEVER output any text in the source language. NEVER mix languages in the output.');
+    }
+    systemLines.push('');
+
+    // 翻译指令
+    if (sourceName) {
+      systemLines.push('You are a translator. Translate the following text from ' + sourceName + ' to natural, accurate ' + targetName + '.');
+    } else {
+      systemLines.push('You are a translator. Translate the following text to natural, accurate ' + targetName + '.');
+    }
+    systemLines.push('Preserve the original meaning, tone, and intent.');
+    systemLines.push('Use natural ' + targetName + ' expressions — avoid stiff, literal, or machine-like phrasing.');
+    systemLines.push('Output ONLY the translation. No explanations, no greetings, no notes.');
 
     return {
-      system: system,
+      system: systemLines.join('\n'),
       user: opts.text,
     };
   }

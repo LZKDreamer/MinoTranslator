@@ -12,13 +12,36 @@
   let floatPosition = 'mouse';
   let defaultModel = 'agnes-ai';
   let pendingTranslate = null; // { text, x, y }
+  let i18nMessages = null; // 从 src/i18n/{lang}.json 加载的消息
 
-  /* ═══════════════════════════════════════════════
-     翻译图标（选中后出现，点击后触发翻译）
-     ═══════════════════════════════════════════════ */
+  var SUPPORTED_UI_LANGS = ['zh-CN', 'en'];
+  var UI_LANG_FALLBACK = 'en';
 
-  // 安全的 i18n 封装：chrome.i18n 在 content script 中可能不可用
+  function detectUILang(uiLanguage) {
+    if (uiLanguage && uiLanguage !== 'auto') return uiLanguage;
+    try {
+      var raw = chrome.i18n.getUILanguage();
+      if (SUPPORTED_UI_LANGS.indexOf(raw) !== -1) return raw;
+      var prefix = raw.split('-')[0];
+      if (prefix === 'zh') return 'zh-CN';
+      if (prefix === 'en') return 'en';
+    } catch (_e) {}
+    return UI_LANG_FALLBACK;
+  }
+
+  async function loadI18n(uiLanguage) {
+    try {
+      var lang = detectUILang(uiLanguage);
+      var url = chrome.runtime.getURL('src/i18n/' + lang + '.json');
+      var resp = await fetch(url);
+      i18nMessages = await resp.json();
+    } catch (_e) {
+      i18nMessages = null;
+    }
+  }
+
   function getMsg(key, fallback) {
+    if (i18nMessages && i18nMessages[key]) return i18nMessages[key];
     try {
       if (chrome && chrome.i18n && chrome.i18n.getMessage) {
         var msg = chrome.i18n.getMessage(key);
@@ -177,7 +200,7 @@
     } catch (err) {
       var msg = err.message || '';
       if (msg.indexOf('Extension context invalidated') !== -1 || msg.indexOf('context invalidated') !== -1) {
-        showPopup(text, '⚠ ' + getMsg('translateError', '翻译失败') + '：扩展上下文已失效，请刷新页面后重试', x, y);
+        showPopup(text, '⚠ ' + getMsg('translateError', '翻译失败') + '：' + getMsg('contextInvalidated', '扩展上下文已失效，请刷新页面后重试'), x, y);
       } else {
         showPopup(text, getMsg('translateError', '翻译失败') + ': ' + msg, x, y);
       }
@@ -243,6 +266,9 @@
     if (changes.defaultModel !== undefined) {
       defaultModel = changes.defaultModel.newValue || 'agnes-ai';
     }
+    if (changes.uiLanguage !== undefined) {
+      loadI18n(changes.uiLanguage.newValue);
+    }
   });
 
   // 初始化
@@ -250,11 +276,12 @@
     try {
       var result = await chrome.runtime.sendMessage({
         type: 'GET_SETTINGS',
-        keys: ['floatingTranslateEnabled', 'floatPosition', 'defaultModel'],
+        keys: ['floatingTranslateEnabled', 'floatPosition', 'defaultModel', 'uiLanguage'],
       });
       isEnabled = result.floatingTranslateEnabled !== false;
       floatPosition = result.floatPosition || 'mouse';
       defaultModel = result.defaultModel || 'agnes-ai';
+      await loadI18n(result.uiLanguage);
     } catch (_err) {
       // 使用默认值
     }

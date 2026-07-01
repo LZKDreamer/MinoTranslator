@@ -108,5 +108,6 @@
   "translating": "翻译中...",
   "noTranslationResult": "暂无翻译结果",
   "translateError": "翻译失败",
-  "networkOffline": "网络离线"
+  "networkOffline": "网络离线",
+  "contextInvalidated": "扩展上下文已失效，请刷新页面后重试"
 }

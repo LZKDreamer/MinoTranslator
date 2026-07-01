@@ -108,5 +108,6 @@
   "translating": "Translating...",
   "noTranslationResult": "No translation result",
   "translateError": "Translation failed",
-  "networkOffline": "Network offline"
+  "networkOffline": "Network offline",
+  "contextInvalidated": "Extension context invalidated, please refresh the page"
 }
