@@ -157,6 +157,22 @@ section('titleCard edge cases');
   assert(sandbox.isTitleCardText("Season 8 - Eps.114") === true, 'episode pattern is titleCard');
   // all-caps no ending punct ≤6 words → titleCard
   assert(sandbox.isTitleCardText("PART ONE") === true, 'all-caps no-punct short is titleCard');
+  // Indonesian multi-line subtitle with lowercase → NOT titleCard (natural speech with \n layout)
+  var idTest = "Sudah lebih dari belasan negara ku\nlewati dalam perjalanan ini";
+  assert(sandbox.isTitleCardText(idTest) === false, 'Indonesian multi-line subtitle not titleCard');
+  assert(sandbox.preSegmentPhraseEvents([makeWord(idTest, 359, 4880)]).length === 1, 'Indonesian multi-line not dropped by preSegment');
+  // multi-line natural English subtitle → NOT titleCard
+  assert(sandbox.isTitleCardText("But this is India\nThere is no wrong way") === false, 'English multi-line subtitle not titleCard');
+  // truly-garbled all-caps multi-line with NO lowercase → still titleCard
+  assert(sandbox.isTitleCardText("TOPA CHINA\nBEAUTIFUL PLACE") === true, 'all-caps multi-line no-lowercase still titleCard');
+  // Thai multi-line with \n → NOT titleCard (non-Latin script guard)
+  assert(sandbox.isTitleCardText("ตอนนี้อยู่ที่เวียดนาม\nนะคะแล้วก็เอ่อกำลังเดิน") === false, 'Thai multi-line not titleCard');
+  // Thai with >> speaker encoding → NOT titleCard (>> guard)
+  assert(sandbox.isTitleCardText("ไม่ได้เรื่อย\n>> คนนี้ชื่อน้องโย") === false, 'Thai >> speaker not titleCard');
+  // Korean multi-line with \n → NOT titleCard (non-Latin script guard)
+  assert(sandbox.isTitleCardText("부산행\n기차 안에서") === false, 'Korean multi-line not titleCard');
+  // Pure Latin all-caps multi-line → still titleCard (no guard triggers)
+  assert(sandbox.isTitleCardText("SEASON 2\nEPISODE 5") === true, 'pure Latin all-caps multi-line still titleCard');
 }
 
 // ════════════════════════════════════════════

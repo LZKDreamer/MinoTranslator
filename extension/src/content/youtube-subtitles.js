@@ -42,7 +42,8 @@ async function fetchSubtitles(videoId, preferredSourceLang) {
   if (captionsData) {
     const trackUrl = captionsData.baseUrl;
     debugLog('YT-Subs', 'track URL: ' + trackUrl + ' lang: ' + language);
-    rawData = await fetchSubtitleFile(trackUrl, preferredSourceLang);
+    var fetchLang = (preferredSourceLang && preferredSourceLang !== 'auto') ? preferredSourceLang : language;
+    rawData = await fetchSubtitleFile(trackUrl, fetchLang);
   }
 
   // 方法3: 拦截 YouTube 播放器自己的字幕请求（绕过 PoToken）
@@ -333,6 +334,62 @@ async function fetchFromPage(videoId, preferredLang) {
 }
 
 /**
+ * 验证 JSON3 字幕内容语言是否与预期一致（脚本级别）
+ * 采样前 10 个 event 的 utf8 文本，用 detectSourceLanguage 做 Unicode 字符集检测
+ * 因拉丁文字系统内（id/en/es/fr等）无法通过字符集区分，使用脚本族匹配而非精确语言匹配
+ * @returns {boolean} 脚本族一致返回 true，明显不匹配返回 false
+ */
+function verifySubtitleContentLanguage(json3Text, expectedLang) {
+  if (!expectedLang || expectedLang === 'auto') return true;
+  try {
+    var json = JSON.parse(json3Text);
+    var events = json && json.events ? json.events : [];
+    var samples = [];
+    for (var ei = 0; ei < events.length && samples.length < 10; ei++) {
+      var ev = events[ei];
+      if (ev && ev.segs && ev.segs.length > 0 && ev.segs[0].utf8) {
+        var t = ev.segs[0].utf8.replace(/^>>\s*/, '').trim();
+        if (t && !/^\[.*\]$/.test(t)) samples.push(t);
+      }
+    }
+    if (samples.length < 3) return true;
+    var sampleText = samples.join(' ');
+    var detected = detectSourceLanguage(sampleText);
+    if (!detected) return true;
+
+    // 脚本族匹配：拉丁文字系统内不区分具体语言（id/en/es 等无法通过字符集区分）
+    // 仅当检测到明显不同文字系统时才拒绝（如 expected=id, detected=ko/ja/zh-CN/ar/th/ru）
+    var expectedResolved = resolveToLangCode(expectedLang);
+    var expectedKey = expectedResolved ? expectedResolved.key : String(expectedLang).split(/[-_]/)[0].toLowerCase();
+    var detectedResolved = resolveToLangCode(detected);
+    var detectedKey = detectedResolved ? detectedResolved.key : detected;
+
+    // 同语言键 → 直接通过
+    if (expectedKey === detectedKey) return true;
+
+    // 已知的非拉丁文字系统：返回这些结果的文本不可能是拉丁文字系统（id/en/es 等）
+    var nonLatinScripts = { 'zh-CN':1, 'zh-TW':1, 'ja':1, 'ko':1, 'ar':1, 'th':1, 'ru':1 };
+
+    // 期待拉丁文字系统但检测到非拉丁 → 拒绝
+    if (!nonLatinScripts[expectedKey] && nonLatinScripts[detectedKey]) {
+      debugLog('YT-Subs', 'verifySubtitle: script mismatch — expected Latin-script (' + expectedKey + ') but detected ' + detectedKey);
+      return false;
+    }
+
+    // 期待非拉丁文字系统但检测到拉丁（en）→ 拒绝
+    if (nonLatinScripts[expectedKey] && !nonLatinScripts[detectedKey]) {
+      debugLog('YT-Subs', 'verifySubtitle: script mismatch — expected ' + expectedKey + ' but detected Latin-script (' + detectedKey + ')');
+      return false;
+    }
+
+    // 同一文字系统内（拉丁间的 id↔en 或 非拉丁间的不匹配）：无法确认是错轨 → 放行
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+
+/**
  * 获取字幕文件内容（多客户端降级）
  */
 async function fetchSubtitleFile(trackUrl, preferredLang) {
@@ -353,7 +410,16 @@ async function fetchSubtitleFile(trackUrl, preferredLang) {
         var bu = bestTrack.baseUrl;
         debugLog('YT-Subs', 'fetchSubtitleFile: [' + clientName + '] selected track lang=' + (bestTrack.languageCode || '?') + ' (was tracks[0]=' + (tracks[0].languageCode || '?') + ')');
         const text = await fetchTimedtextJsonFirst(bu, clientName);
-        if (text) return text;
+        if (text) {
+          if (preferredLang && preferredLang !== 'auto') {
+            if (!verifySubtitleContentLanguage(text, preferredLang)) {
+              debugLog('YT-Subs', 'fetchSubtitleFile: [' + clientName + '] content lang MISMATCH — expected ' + preferredLang + ', skipping client');
+              continue;
+            }
+            debugLog('YT-Subs', 'fetchSubtitleFile: [' + clientName + '] content lang OK — ' + preferredLang);
+          }
+          return text;
+        }
       }
     } catch (e) {
       debugLog('YT-Subs', 'fetchSubtitleFile InnerTube [' + clientName + '] failed: ' + e.message);
@@ -698,7 +764,14 @@ function isTitleCardText(text) {
   // 条件1: 剧集标记模式
   if (/Season\s+\d+\s*-\s*Eps\.\d+|Episode\s+\d+/i.test(trimmed)) return true;
   // 条件2: 含 \n 且不以句末标点结尾 且 不含说话人标记
+  // 此条件仅对拉丁文字有效——非拉丁文字（泰文/天城文/韩文等）中 \n 是正常换行
   if (trimmed.indexOf('\n') !== -1 && !SENTENCE_END_RE.test(trimmed) && !SPEAKER_CHANGE_RE.test(trimmed)) {
+    // 守卫1：含拉丁小写字母的是正常自然语句（如印尼语 "Sudah...\nlewati..."）
+    if (/[a-z]/.test(trimmed)) return false;
+    // 守卫2：含非拉丁文字（泰文/天城文/韩文/汉字/日文等）→ \n 是正常多行排版，非标题卡片
+    if (/[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u0600-\u06FF\u0E00-\u0E7F\u0900-\u0FFF]/.test(trimmed)) return false;
+    // 守卫3：含 >> 说话人编码（YouTube 非拉丁文字的多说话人标记）
+    if (/>\s*>/.test(trimmed)) return false;
     return true;
   }
   // 条件3: 全大写、≤6 词、无小写字母、不以句末标点结尾（仅适用于拉丁文字；非拉丁文字无大小写，跳过此条件）
@@ -1152,6 +1225,14 @@ const TINY_SENTENCE_MAX_WORDS = 3;
 const MAX_TRANSLATION_TOKENS = 65536;
 const TRANSLATION_TEMPERATURE = 0.3;
 
+/**
+ * 清洗翻译结果：删除 AI 遗漏的方括号场景标记（如 [音乐]、[笑声]、[music] 等）
+ */
+function cleanTranslatedText(text) {
+  if (!text) return text;
+  return text.replace(/\[.*?\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 const BATCH_SIZE = 40;
 const BATCH_CONTEXT_SIZE = 5;
 const MAX_CONCURRENT = 2;
@@ -1233,7 +1314,7 @@ function isSegmentSameLanguage(text, targetLang) {
   if (translateSentences.length <= BATCH_SIZE) {
     var results = await translateOneBatch(translateSentences, settings, model, null, signal);
     for (var ri0 = 0; ri0 < results.length; ri0++) {
-      allResults[translateIndexMap[ri0]] = results[ri0];
+      allResults[translateIndexMap[ri0]] = cleanTranslatedText(results[ri0]);
     }
     if (onProgress) onProgress(allResults.slice(), { batchIndex: 0, totalBatches: 1 });
     return allResults;
@@ -1349,6 +1430,9 @@ function isSegmentSameLanguage(text, targetLang) {
         await acquireWorker();
         var startedAt = Date.now();
         var batchTranslations = await translateOneBatch(batch.sentences, settings, model, prevContexts, signal);
+        for (var cti = 0; cti < batchTranslations.length; cti++) {
+          batchTranslations[cti] = cleanTranslatedText(batchTranslations[cti]);
+        }
         debugLog('YT-Subs', 'translateOneBatch: ' + (Date.now() - startedAt) + 'ms, ' + batch.sentences.length + ' sentences, worker=' + workerId);
 
         batch.translations = batchTranslations;
